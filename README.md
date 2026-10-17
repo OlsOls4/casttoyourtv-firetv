@@ -22,7 +22,9 @@ You scan a QR code on the TV and send a video and its subtitles from your phone.
 
 ![Pair screen, web sender, playback with subtitles and the five Ask the TV answers, captured on the Vega Virtual Device in CI](docs/contact-sheet.png)
 
-▶ **Demo video (1080p, 2¾ min, recorded in CI on the VVD):** [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4)
+▶ **Demo video (YouTube, 2:47):** https://youtu.be/uGa3gNCsfk4 · raw CI recording from the VVD (1080p, 2¾ min): [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4)
+
+[![Watch the demo on YouTube](https://img.youtube.com/vi/uGa3gNCsfk4/hqdefault.jpg)](https://youtu.be/uGa3gNCsfk4)
 
 ## Demo video and screenshots
 
