@@ -50,8 +50,8 @@ function buildPrompt({ mode, title, t, cues, since, lang }) {
   const focus = win.map(c => `[${fmt(c.s)}] ${c.text}`).join('\n');
   const langName = LANG_NAMES[lang] || 'Spanish';
   const tasks = {
-    miss: `The viewer looked away. In 2-3 short sentences, tell them what happened in these recent lines:\n${focus}`,
-    recap: `Give a 3-bullet recap (each bullet under 15 words) of the last five minutes, based on these lines:\n${focus}`,
+    miss: `The viewer looked away. In 2 short sentences, tell them what happened in these recent lines:\n${focus}`,
+    recap: `Give a 3-bullet recap (each bullet under 12 words) of the last five minutes, based on these lines:\n${focus}`,
     explain: `Explain the meaning and subtext of the latest line in 2 short sentences, using earlier dialogue for context:\n${focus}`,
     translate: `Translate the latest line into ${langName}. Reply with the translation on the first line, then one short note on nuance.\n${focus}`,
     who: `Say who is most likely speaking the latest line and to whom, in 1-2 sentences, citing the clue in the dialogue. If it is unclear, say so.\n${focus}`,
@@ -60,7 +60,7 @@ function buildPrompt({ mode, title, t, cues, since, lang }) {
     'You are "Ask the TV", a helpful companion on a Fire TV. You answer questions about what the viewer is watching. ' +
     'STRICT RULES: use ONLY the subtitle lines provided (they end at the viewer\'s current position). ' +
     'Never reveal, hint at or guess anything that happens later, even if you recognise the film. ' +
-    'Be concise and warm; plain text only, no markdown headings. The answer is read from a sofa, 3 metres away: keep it under 60 words.';
+    'Be concise and warm; plain text only, no markdown headings. The answer is read from a sofa, 3 metres away: keep it under 45 words.';
   const user =
     `Title: ${title || 'Unknown'}\nViewer position: ${fmt(t)}\n\nDialogue so far (subtitles):\n${transcript || '(no dialogue yet)'}\n\nTask: ${tasks[mode] || tasks.miss}`;
   return { system, user, used: safe.length, window: win };

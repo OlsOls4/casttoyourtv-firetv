@@ -63,8 +63,8 @@
   $('subs').value = q.get('subs') || DEMO.subs;
   $('title').value = q.get('title') || DEMO.title;
   $('demo').onclick = () => { $('video').value = DEMO.video; $('subs').value = DEMO.subs; $('title').value = DEMO.title; $('start').value = DEMO.start; };
-  $('f').onsubmit = async e => {
-    e.preventDefault();
+  async function send(e) {
+    if (e) e.preventDefault();
     const st = $('st'); st.className = 'status'; st.textContent = 'Sending…';
     try {
       const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -73,7 +73,10 @@
       if (!j.ok) throw new Error(j.error || 'failed');
       st.className = 'status ok'; st.textContent = j.tvOnline ? 'Sent! Your TV is starting playback.' : 'Sent. It will start as soon as your TV checks in.';
     } catch (err) { st.className = 'status err'; st.textContent = 'Could not send: ' + err.message; }
-  };
+  }
+  $('f').onsubmit = send;
+  if (q.get('start')) $('start').value = q.get('start');
+  if (q.get('autosend') === '1' && $('code').value) send();
 </script>
 </body>
 </html>

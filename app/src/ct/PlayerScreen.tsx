@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { BackHandler, HWEvent, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoSurfaceView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
-import { AskPanel } from './AskPanel';
+import { AskPanel, PANEL_W } from './AskPanel';
 import { Cast, COLORS, fmtTime } from './config';
 import { SINTEL_SRT } from './sintelSubs';
 import { activeCue, Cue, parseSubtitles } from './subtitles';
@@ -194,7 +194,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
 
   const cue = activeCue(cues, t);
   const showHud = hud || askOpen || pausedRef.current;
-  const rightInset = askOpen ? S(700) : 0;
+  const rightInset = askOpen ? S(PANEL_W) : 0;
   const stateLabel =
     state === 'playing' ? 'Playing' : state === 'paused' ? 'Paused' : state === 'clock' ? 'Subtitle clock' : state === 'error' ? 'Error' : 'Loading video…';
 

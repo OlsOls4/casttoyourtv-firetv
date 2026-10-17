@@ -7,7 +7,7 @@ name: Fire TV (Vega VVD) build + demo
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "docs/**", "server/**"]
+    paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
     inputs:
       offline-ask:
@@ -45,7 +45,7 @@ jobs:
           boot: background
 
       - name: Pairing code for this run
-        run: echo "PAIR_CODE=CI$(printf '%04d' $(( ${{ github.run_id }} % 10000 )))" >> "$GITHUB_ENV"
+        run: echo "PAIR_CODE=TV$(printf '%04d' $(( ${{ github.run_id }} % 10000 )))" >> "$GITHUB_ENV"
 
       - name: Build app (while the VVD boots)
         env:

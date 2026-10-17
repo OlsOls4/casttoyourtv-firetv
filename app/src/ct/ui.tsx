@@ -40,24 +40,24 @@ export function Focusable({ label, icon, onPress, preferred, style, variant = 'g
         {
           flexDirection: 'row',
           alignItems: 'center',
-          paddingVertical: S(chip ? 20 : 22),
-          paddingHorizontal: S(chip ? 26 : 34),
+          paddingVertical: S(chip ? 13 : 22),
+          paddingHorizontal: S(chip ? 22 : 34),
           borderRadius: S(chip ? 18 : 40),
           backgroundColor: bg,
           borderWidth: S(3),
           borderColor: focused ? (primary ? '#FFD596' : '#FFFFFF') : 'rgba(255,255,255,0.10)',
           transform: [{ scale: focused ? 1.05 : 1 }],
-          marginBottom: S(chip ? 14 : 0),
+          marginBottom: S(chip ? 10 : 0),
         },
         style,
       ]}>
       {icon ? (
-        <View style={{ width: S(46), height: S(46), borderRadius: S(23), alignItems: 'center', justifyContent: 'center', marginRight: S(18),
+        <View style={{ width: S(chip ? 40 : 46), height: S(chip ? 40 : 46), borderRadius: S(23), alignItems: 'center', justifyContent: 'center', marginRight: S(18),
           backgroundColor: focused ? 'rgba(0,0,0,0.12)' : 'rgba(255,181,71,0.15)' }}>
           <Text style={{ color: focused ? '#14100A' : COLORS.accent, fontSize: S(24), fontWeight: '700' }}>{icon}</Text>
         </View>
       ) : null}
-      <Text style={{ color: fg, fontSize: S(chip ? 32 : 34), fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: fg, fontSize: S(chip ? 28 : 34), fontWeight: '700' }}>{label}</Text>
       {chip && focused ? <Text style={{ marginLeft: 'auto', color: '#14100A', fontSize: S(30), fontWeight: '800' }}>›</Text> : null}
     </TouchableOpacity>
   );
