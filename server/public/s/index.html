@@ -57,7 +57,7 @@
 <script>
   const q = new URLSearchParams(location.search);
   const $ = id => document.getElementById(id);
-  const DEMO = { video: location.origin + '/media/sintel-0-330-480p.mp4', subs: location.origin + '/media/sintel_en.srt', title: 'Sintel (Blender Foundation, CC BY)', start: 100 };
+  const DEMO = { video: location.origin + '/media/sintel-0-330-480p.mp4', subs: location.origin + '/media/sintel_en.srt', title: 'Sintel', start: 100 };
   $('code').value = (q.get('code') || '').toUpperCase();
   $('video').value = q.get('video') || DEMO.video;
   $('subs').value = q.get('subs') || DEMO.subs;

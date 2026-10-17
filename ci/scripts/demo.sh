@@ -51,7 +51,7 @@ if [[ -n "$CHROME" ]]; then
 fi
 if [[ "$CAST" == none ]]; then
   resp=$(curl -s -m 15 -X POST "$API/api/relay" -H 'content-type: application/json' \
-    -d "{\"code\":\"$PAIR_CODE\",\"videoUrl\":\"$API/media/sintel-0-330-480p.mp4\",\"subtitleUrl\":\"$API/media/sintel_en.srt\",\"title\":\"Sintel (Blender Foundation, CC BY)\",\"startAt\":100}")
+    -d "{\"code\":\"$PAIR_CODE\",\"videoUrl\":\"$API/media/sintel-0-330-480p.mp4\",\"subtitleUrl\":\"$API/media/sintel_en.srt\",\"title\":\"Sintel\",\"startAt\":100}")
   echo "$resp" | tee "$OUT/logs/relay-post.json"
   if echo "$resp" | grep -q '"tvOnline":true'; then CAST=relay-curl
   else echo "TV not seen on relay: pressing Select on 'Play the demo film'"; CAST=button; p select; fi
@@ -64,7 +64,8 @@ sleep 6;  shot subtitle-a
 sleep 7;  shot subtitle-b
 sleep 9;  shot subtitle-c
 sleep 9;  shot subtitle-d
-sleep 10; shot before-ask
+sleep 10; shot subtitle-e
+sleep 11; shot before-ask
 
 echo "::group::Ask the TV"
 p select; sleep 2.5; shot ask-open
@@ -87,5 +88,9 @@ tail -40 "$OUT/logs/app-log.txt" 2>/dev/null || true
 if [[ -s "$OUT/demo-console.webm" ]]; then
   ffmpeg -y -loglevel error -i "$OUT/demo-console.webm" -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -movflags +faststart "$OUT/ask-the-tv-demo.mp4" || true
 fi
-ffmpeg -y -loglevel error -pattern_type glob -i "$OUT/shots/*.png" -vf "scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:(oh-ih)/2:color=0x0B0F1A,tile=4x6:padding=6:color=0x0B0F1A" -frames:v 1 "$OUT/contact-sheet.png" || true
+if command -v montage >/dev/null; then
+  montage "$OUT"/shots/*.png -tile 4x -geometry 480x270+4+4 -background '#0B0F1A' "$OUT/contact-sheet.png" || true
+else
+  ffmpeg -y -loglevel error -pattern_type glob -i "$OUT/shots/[0-9]*.png" -vf "scale=480:270,tile=4x6:padding=6:color=0x0B0F1A" -frames:v 1 "$OUT/contact-sheet.png" || true
+fi
 ls -la "$OUT" "$OUT/shots"

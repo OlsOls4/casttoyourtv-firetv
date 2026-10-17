@@ -226,6 +226,9 @@ export function PlayerScreen({ cast, onExit }: Props) {
             </Text>
           </View>
           <Text style={{ color: COLORS.ink, fontSize: S(56), fontWeight: '800', marginTop: S(10) }}>{title}</Text>
+          {/sintel/i.test(cast.videoUrl + title) ? (
+            <Text style={{ color: COLORS.mute, fontSize: S(20), marginTop: S(4) }}>Sintel © Blender Foundation | durian.blender.org · CC BY 3.0</Text>
+          ) : null}
           {!askOpen ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: S(18) }}>
               <View style={{ paddingHorizontal: S(18), paddingVertical: S(8), borderRadius: S(24), backgroundColor: COLORS.accent, marginRight: S(16) }}>
