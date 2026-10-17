@@ -74,11 +74,26 @@ p down select; sleep 5; shot ask-recap
 p down select; sleep 5; shot ask-explain
 p down select; sleep 5; shot ask-translate
 p down select; sleep 5; shot ask-whos-speaking
+# Multi-modal: ask a free question from the phone page (voice in real life; typed here, flagged via=voice)
+QURL="$API/s/?code=$PAIR_CODE&ask=Why%20is%20she%20looking%20for%20a%20dragon%3F&via=voice"
+if [[ -n "${CHROME:-}" ]]; then
+  timeout 40 "$CHROME" --headless=new --no-sandbox --disable-gpu --virtual-time-budget=5000 --dump-dom \
+    "$QURL&autoask=1" > "$OUT/logs/phone-ask-dom.html" 2>/dev/null || true
+  grep -o 'id="ast"[^<]*' "$OUT/logs/phone-ask-dom.html" | tee "$OUT/logs/phone-ask-status.txt" || true
+fi
+if ! grep -q 'Asked\|Queued' "$OUT/logs/phone-ask-dom.html" 2>/dev/null; then
+  curl -s -m 15 -X POST "$API/api/relay" -H 'content-type: application/json' \
+    -d '{"code":"'"$PAIR_CODE"'","question":"Why is she looking for a dragon?","via":"voice"}' | tee "$OUT/logs/phone-ask-curl.json"
+fi
+sleep 7; shot ask-from-phone
 p back; sleep 5; shot resumed
 p back; sleep 3; shot back-to-pair
 echo "::endgroup::"
 
 record.sh stop 2>&1 | tee "$OUT/logs/record-stop.log"
+# phone-sized screenshot of the sender with the question filled in (outside the recording)
+[[ -n "${CHROME:-}" ]] && timeout 40 "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=430,932 \
+  --virtual-time-budget=3000 --screenshot="$OUT/shots/99-phone-ask.png" "$QURL" >/dev/null 2>&1 || true
 sleep 4
 echo "demo length $((SECONDS-T0))s"
 timeout 40 vega exec vda shell "loggingctl log | tail -n 6000" > "$OUT/logs/device-log.txt" 2>&1 || true

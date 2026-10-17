@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Text, TouchableOpacity, View } from 'react-native';
 import { BackHandler, HWEvent, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoSurfaceView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
-import { AskPanel, PANEL_W } from './AskPanel';
-import { Cast, COLORS, fmtTime } from './config';
+import { AskPanel, PANEL_W, PhoneQuestion } from './AskPanel';
+import { API_BASE, Cast, COLORS, fmtTime } from './config';
 import { SINTEL_SRT } from './sintelSubs';
 import { activeCue, Cue, parseSubtitles } from './subtitles';
 import { useS } from './ui';
@@ -21,6 +21,8 @@ export function PlayerScreen({ cast, onExit }: Props) {
   const [state, setState] = useState<PlayState>('loading');
   const [askOpen, setAskOpen] = useState(false);
   const [hud, setHud] = useState(true);
+  const [phoneQ, setPhoneQ] = useState<PhoneQuestion | null>(null);
+  const askOpenRef = useRef(false);
 
   const tRef = useRef(cast.startAt || 0);
   const pausedRef = useRef(false);
@@ -154,12 +156,15 @@ export function PlayerScreen({ cast, onExit }: Props) {
   };
 
   const openAsk = () => {
-    if (askOpen) return;
+    if (askOpenRef.current) return;
+    askOpenRef.current = true;
     pause();
     setAskOpen(true);
     console.log(`[CTTV] Ask the TV opened at ${fmtTime(tRef.current)}`);
   };
   const closeAsk = () => {
+    askOpenRef.current = false;
+    setPhoneQ(null);
     setAskOpen(false);
     resume();
   };
@@ -171,6 +176,28 @@ export function PlayerScreen({ cast, onExit }: Props) {
     setHud(true);
     setTimeout(() => setHud(false), 3000);
   };
+
+  // Questions asked from the phone (voice or typed) while watching: pause, open the panel, answer.
+  useEffect(() => {
+    if (!cast.code) return;
+    let alive = true;
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/relay?code=${cast.code}&q=1`);
+        const j = await r.json();
+        if (alive && j && j.question && j.question.text) {
+          console.log(`[CTTV] phone question (${j.question.via}): ${j.question.text}`);
+          openAsk();
+          setPhoneQ(j.question);
+        }
+      } catch (e) {}
+    }, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cast.code]);
 
   useTVEventHandler((evt: HWEvent) => {
     if (!evt || evt.eventKeyAction !== 0) return;
@@ -262,7 +289,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
         </View>
       ) : null}
 
-      {askOpen ? <AskPanel cues={cues} t={t} title={title} /> : null}
+      {askOpen ? <AskPanel cues={cues} t={t} title={title} phoneQuestion={phoneQ} /> : null}
     </View>
   );
 }

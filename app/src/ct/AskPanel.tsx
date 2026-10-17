@@ -7,29 +7,39 @@ import { Focusable, useS } from './ui';
 
 export const PANEL_W = 760;
 
-type Props = { cues: Cue[]; t: number; title: string; since?: number };
+export type PhoneQuestion = { id: string; text: string; via?: string };
+type Props = { cues: Cue[]; t: number; title: string; since?: number; phoneQuestion?: PhoneQuestion | null };
 
 // Side panel opened while paused. Answers come from an LLM that only sees subtitle cues up to `t`.
-export function AskPanel({ cues, t, title, since }: Props) {
+export function AskPanel({ cues, t, title, since, phoneQuestion }: Props) {
   const S = useS();
   const slide = useRef(new Animated.Value(1)).current;
   const [busy, setBusy] = useState<AskMode | null>(null);
-  const [result, setResult] = useState<(AskResult & { mode: AskMode }) | null>(null);
+  const [result, setResult] = useState<(AskResult & { mode: AskMode; question?: string; via?: string }) | null>(null);
+  const [asked, setAsked] = useState<PhoneQuestion | null>(null);
   const known = cuesUpTo(cues, t).length;
 
   useEffect(() => {
     Animated.timing(slide, { toValue: 0, duration: 260, useNativeDriver: false }).start();
   }, [slide]);
 
-  const ask = async (mode: AskMode) => {
+  const ask = async (mode: AskMode, pq?: PhoneQuestion) => {
     setBusy(mode);
+    setAsked(pq || null);
     setResult(null);
-    const r = await askTheTv(mode, cues, t, title, since);
-    setResult({ ...r, mode });
+    const r = await askTheTv(mode, cues, t, title, since, pq?.text);
+    setResult({ ...r, mode, question: pq?.text, via: pq?.via });
     setBusy(null);
   };
 
-  const chipLabel = (m: AskMode) => ASK_CHIPS.find(c => c.mode === m)?.label || '';
+  // A question asked from the phone (voice or typed) arrives through the relay.
+  useEffect(() => {
+    if (phoneQuestion) ask('ask', phoneQuestion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneQuestion?.id]);
+
+  const chipLabel = (m: AskMode, via?: string) =>
+    m === 'ask' ? (via === 'voice' ? '◉ ASKED OUT LOUD ON YOUR PHONE' : '◉ ASKED FROM YOUR PHONE') : ASK_CHIPS.find(c => c.mode === m)?.label || '';
   const sourceLabel = (r: AskResult) =>
     r.source === 'gemini' ? 'Gemini' : r.source === 'groq' ? 'Groq · Llama' : r.source === 'offline' ? 'Offline mode' : r.source;
 
@@ -64,13 +74,15 @@ export function AskPanel({ cues, t, title, since }: Props) {
       <View style={{ marginTop: S(8), flex: 1, marginBottom: S(40) }}>
         {busy ? (
           <View style={{ backgroundColor: COLORS.card, borderRadius: S(24), padding: S(30) }}>
-            <Text style={{ color: COLORS.accent, fontSize: S(24), fontWeight: '700' }}>{chipLabel(busy).toUpperCase()}</Text>
+            <Text style={{ color: COLORS.accent, fontSize: S(24), fontWeight: '700' }}>{chipLabel(busy, asked?.via).toUpperCase()}</Text>
+            {asked ? <Text style={{ color: COLORS.ink, fontSize: S(28), fontStyle: 'italic', marginTop: S(8) }}>“{asked.text}”</Text> : null}
             <Text style={{ color: COLORS.mute, fontSize: S(30), marginTop: S(14) }}>Thinking about the last {known} lines…</Text>
           </View>
         ) : result ? (
           <View style={{ backgroundColor: COLORS.card, borderRadius: S(24), paddingHorizontal: S(26), paddingVertical: S(22), borderWidth: S(2), borderColor: 'rgba(255,181,71,0.25)' }}>
-            <Text style={{ color: COLORS.accent, fontSize: S(24), fontWeight: '700' }}>{chipLabel(result.mode).toUpperCase()}</Text>
-            <Text style={{ color: COLORS.ink, fontSize: S(27), lineHeight: S(37), marginTop: S(10) }} numberOfLines={9}>
+            <Text style={{ color: COLORS.accent, fontSize: S(24), fontWeight: '700' }}>{chipLabel(result.mode, result.via).toUpperCase()}</Text>
+            {result.question ? <Text style={{ color: COLORS.mute, fontSize: S(26), fontStyle: 'italic', marginTop: S(8) }} numberOfLines={2}>“{result.question}”</Text> : null}
+            <Text style={{ color: COLORS.ink, fontSize: S(27), lineHeight: S(37), marginTop: S(10) }} numberOfLines={result.question ? 7 : 9}>
               {result.answer}
             </Text>
             <Text style={{ color: COLORS.dim, fontSize: S(19), marginTop: S(12) }}>
@@ -78,7 +90,7 @@ export function AskPanel({ cues, t, title, since }: Props) {
             </Text>
           </View>
         ) : (
-          <Text style={{ color: COLORS.dim, fontSize: S(26), lineHeight: S(36) }}>Pick a question with ▲▼ and press Select.</Text>
+          <Text style={{ color: COLORS.dim, fontSize: S(26), lineHeight: S(36) }}>Pick a question with ▲▼ and press Select, or ask out loud from your phone.</Text>
         )}
       </View>
 

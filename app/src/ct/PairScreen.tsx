@@ -38,7 +38,7 @@ export function PairScreen({ onCast }: Props) {
         fails = 0;
         if (j && j.cast && j.cast.videoUrl) {
           console.log(`[CTTV] cast received for ${code}: ${j.cast.videoUrl}`);
-          onCast({ ...j.cast, source: 'phone' });
+          onCast({ ...j.cast, source: 'phone', code });
         }
       } catch (e) {
         fails++;
@@ -96,7 +96,7 @@ export function PairScreen({ onCast }: Props) {
           </View>
 
           <View style={{ flexDirection: 'row', marginTop: S(48) }}>
-            <Focusable variant="primary" preferred icon="▶" label="Play the demo film" onPress={() => onCast(DEMO_CAST)} testID="demo" />
+            <Focusable variant="primary" preferred icon="▶" label="Play the demo film" onPress={() => onCast({ ...DEMO_CAST, code })} testID="demo" />
             <View style={{ width: S(24) }} />
             <Focusable label="New code" icon="↻" onPress={() => setCode(BUILD.pairCode ? code : newPairCode())} testID="newcode" />
           </View>

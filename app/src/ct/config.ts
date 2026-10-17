@@ -10,6 +10,7 @@ export type Cast = {
   startAt?: number;
   posterUrl?: string;
   source?: 'phone' | 'demo';
+  code?: string; // pairing code, so the phone can keep asking questions during playback
 };
 
 export const DEMO_CAST: Cast = {

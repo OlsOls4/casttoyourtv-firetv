@@ -23,6 +23,11 @@
   .ok { color:#6ee7a8 } .err { color:#ff8a8a }
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px }
   .chip { font-size:12px; padding:6px 10px; border-radius:999px; background:#1d2540; color:#cfd6ea }
+  .askrow { display:flex; gap:8px; margin-top:10px }
+  .askrow input { flex:1 }
+  button.mic { width:56px; margin:0; padding:0; font-size:24px; background:#1d2540; border:1px solid #2c3554 }
+  button.mic.on { background:#ff5a5a; box-shadow:0 0 0 6px rgba(255,90,90,.25) }
+  .chip { cursor:pointer }
   footer { color:var(--mute); font-size:12px; margin-top:26px; line-height:1.5 }
   a { color:#c9b8ff }
 </style>
@@ -31,7 +36,7 @@
 <main>
   <div class="brand"><span class="dot"></span> Cast to Your TV · Fire TV</div>
   <h1>Send a video to your TV</h1>
-  <p class="sub">Enter the 6-character code on your TV, paste a video link and (optionally) subtitles. Then press <b>Select</b> on the remote to <b>Ask the TV</b> about what you're watching — spoiler-free.</p>
+  <p class="sub">Enter the 6-character code on your TV, paste a video link and (optionally) subtitles. Then press <b>Select</b> on the remote, or ask out loud from this page, to <b>Ask the TV</b> about what you're watching — spoiler-free.</p>
   <form class="card" id="f">
     <label for="code">TV code</label>
     <input id="code" class="code" maxlength="8" autocomplete="off" placeholder="ABC123" required>
@@ -47,11 +52,17 @@
     <button type="button" class="ghost" id="demo">Use the Sintel demo</button>
     <div class="status" id="st"></div>
   </form>
-  <div class="card">
-    <div style="font-weight:700">Ask the TV</div>
-    <div class="chips"><span class="chip">What did I miss?</span><span class="chip">Recap last 5 min</span><span class="chip">Explain this line</span><span class="chip">Translate line</span><span class="chip">Who's speaking?</span></div>
-    <p class="sub" style="margin:10px 0 0">Answers use only the subtitles up to the moment you paused.</p>
-  </div>
+  <form class="card" id="askf">
+    <div style="font-weight:700">Ask the TV, from your phone</div>
+    <p class="sub" style="margin:6px 0 4px">Tap the mic and ask out loud, or type. The TV pauses and answers on screen, using only the subtitles up to now: no spoilers.</p>
+    <div class="askrow">
+      <input id="ask" maxlength="200" autocomplete="off" placeholder="Why is she looking for a dragon?">
+      <button type="button" class="mic" id="mic" title="Ask by voice" aria-label="Ask by voice">🎤</button>
+    </div>
+    <div class="chips" id="sugg"><span class="chip">What did I miss?</span><span class="chip">Who is she talking to?</span><span class="chip">What does that line mean?</span></div>
+    <button type="submit">Ask the TV</button>
+    <div class="status" id="ast"></div>
+  </form>
   <footer>Companion to <a href="https://casttoyourtv.com/">casttoyourtv.com</a>. Demo film: <i>Sintel</i> © Blender Foundation, <a href="https://durian.blender.org/">durian.blender.org</a>, licensed CC BY 3.0.</footer>
 </main>
 <script>
@@ -77,6 +88,37 @@
   $('f').onsubmit = send;
   if (q.get('start')) $('start').value = q.get('start');
   if (q.get('autosend') === '1' && $('code').value) send();
+  // ---- Ask the TV from the phone (Web Speech API where available, else typing)
+  let via = 'text';
+  async function ask(e) {
+    if (e) e.preventDefault();
+    const text = $('ask').value.trim(); const st = $('ast');
+    if (!text) { st.className = 'status err'; st.textContent = 'Type or say a question first.'; return; }
+    st.className = 'status'; st.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: $('code').value.trim().toUpperCase(), question: text, via }) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'failed');
+      st.className = 'status ok'; st.textContent = j.tvOnline ? 'Asked! Look at your TV.' : 'Queued. Your TV will answer when it checks in.';
+      via = 'text';
+    } catch (err) { st.className = 'status err'; st.textContent = 'Could not ask: ' + err.message; }
+  }
+  $('askf').onsubmit = ask;
+  document.querySelectorAll('#sugg .chip').forEach(c => c.onclick = () => { $('ask').value = c.textContent; via = 'text'; });
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $('mic').title = 'Voice input is not supported in this browser: type instead'; $('mic').style.opacity = .45; }
+  $('mic').onclick = () => {
+    if (!SR) { $('ast').className = 'status'; $('ast').textContent = 'Voice input needs Chrome or Safari: type your question instead.'; return; }
+    const rec = new SR(); rec.lang = navigator.language || 'en-GB'; rec.interimResults = true; rec.maxAlternatives = 1;
+    $('mic').classList.add('on'); $('ast').className = 'status'; $('ast').textContent = 'Listening…';
+    rec.onresult = ev => { const r = ev.results[ev.results.length - 1]; $('ask').value = r[0].transcript; if (r.isFinal) { via = 'voice'; ask(); } };
+    rec.onerror = ev => { $('ast').className = 'status err'; $('ast').textContent = 'Mic error: ' + ev.error; };
+    rec.onend = () => $('mic').classList.remove('on');
+    rec.start();
+  };
+  if (q.get('ask')) { $('ask').value = q.get('ask'); if (q.get('via') === 'voice') via = 'voice'; }
+  if (q.get('autoask') === '1' && $('code').value && q.get('ask')) ask();
 </script>
 </body>
 </html>

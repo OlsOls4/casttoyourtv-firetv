@@ -8,6 +8,7 @@ const MODES = {
   explain: 'Explain this line',
   translate: 'Translate line',
   who: "Who's speaking?",
+  ask: 'Your question',
 };
 
 const LANG_NAMES = { es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', ja: 'Japanese', pl: 'Polish' };
@@ -43,7 +44,11 @@ function windowFor(mode, cues, t, since) {
   return cues.slice(-10);
 }
 
-function buildPrompt({ mode, title, t, cues, since, lang }) {
+function cleanQuestion(q) {
+  return clean(q).replace(/["“”]/g, "'").slice(0, 200);
+}
+
+function buildPrompt({ mode, title, t, cues, since, lang, question }) {
   const safe = spoilerSafe(cues, t);
   const win = windowFor(mode, safe, t, since);
   const transcript = safe.slice(-80).map(c => `[${fmt(c.s)}] ${c.text}`).join('\n');
@@ -54,6 +59,7 @@ function buildPrompt({ mode, title, t, cues, since, lang }) {
     recap: `Give a 3-bullet recap (each bullet under 12 words) of the last five minutes, based on these lines:\n${focus}`,
     explain: `Explain the meaning and subtext of the latest line in 2 short sentences, using earlier dialogue for context:\n${focus}`,
     translate: `Translate the latest line into ${langName}. Reply with the translation on the first line, then one short note on nuance.\n${focus}`,
+    ask: `The viewer asked, by voice from their phone: "${cleanQuestion(question)}". Answer in 1-3 short sentences using only the dialogue so far. If the dialogue doesn't answer it yet, say so honestly and don't guess what happens next.`,
     who: `Say who is most likely speaking the latest line and to whom, in 1-2 sentences, citing the clue in the dialogue. If it is unclear, say so.\n${focus}`,
   };
   const system =
@@ -66,7 +72,7 @@ function buildPrompt({ mode, title, t, cues, since, lang }) {
   return { system, user, used: safe.length, window: win };
 }
 
-function offlineAnswer({ mode, title, t, cues, since, lang }) {
+function offlineAnswer({ mode, title, t, cues, since, lang, question }) {
   const safe = spoilerSafe(cues, t);
   const win = windowFor(mode, safe, t, since);
   const last = safe[safe.length - 1];
@@ -83,6 +89,8 @@ function offlineAnswer({ mode, title, t, cues, since, lang }) {
       return `${q(last)} is said at ${fmt(last.s)}. It follows ${safe.length > 1 ? q(safe[safe.length - 2]) : 'the opening'}, so it reacts to that moment.`;
     case 'translate':
       return `${q(last)}\n(offline mode: translation needs a connection)`;
+    case 'ask':
+      return `You asked “${cleanQuestion(question)}”. I need a connection to answer free questions. The latest line was ${q(last)} at ${fmt(last.s)}.`;
     case 'who':
       return `The line ${q(last)} comes from the conversation on screen right now. Speaker detection needs a connection.`;
     default:
@@ -143,9 +151,11 @@ async function callGemini(system, user, signal) {
 async function answer(body) {
   const mode = MODES[body.mode] ? body.mode : 'miss';
   const t = Number(body.t) || 0;
-  const input = { mode, title: body.title, t, cues: body.cues, since: Number(body.since), lang: body.lang };
+  const question = cleanQuestion(body.question);
+  if (mode === 'ask' && !question) return { mode, label: MODES.ask, answer: 'Ask me something about what you have watched so far.', source: 'none', cuesUsed: 0 };
+  const input = { mode, title: body.title, t, cues: body.cues, since: Number(body.since), lang: body.lang, question };
   const { system, user, used, window } = buildPrompt(input);
-  const base = { mode, label: MODES[mode], position: fmt(t), cuesUsed: used, window: window.length };
+  const base = { mode, label: MODES[mode], question: question || undefined, position: fmt(t), cuesUsed: used, window: window.length };
   if (body.offline) return { ...base, answer: offlineAnswer(input), source: 'offline' };
   for (const [name, fn] of [['groq', callGroq], ['gemini', callGemini]]) {
     const ctl = new AbortController();

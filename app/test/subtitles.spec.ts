@@ -22,4 +22,10 @@ describe('subtitles', () => {
     expect(a).toContain('A dragon.');
     expect(a).not.toContain('Scales');
   });
+  it('offline free question echoes the question and only seen lines', () => {
+    const a = offlineAnswer('ask', cues, 150, 'Why a dragon?');
+    expect(a).toContain('Why a dragon?');
+    expect(a).toContain('A dragon.');
+    expect(a).not.toContain('Scales');
+  });
 });

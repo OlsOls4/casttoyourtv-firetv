@@ -4,7 +4,7 @@ import { API_BASE, fmtTime } from './config';
 import { BUILD } from './buildConfig';
 import { Cue, cuesUpTo } from './subtitles';
 
-export type AskMode = 'miss' | 'recap' | 'explain' | 'translate' | 'who';
+export type AskMode = 'miss' | 'recap' | 'explain' | 'translate' | 'who' | 'ask';
 export const ASK_CHIPS: { mode: AskMode; label: string; icon: string }[] = [
   { mode: 'miss', label: 'What did I miss?', icon: '⟲' },
   { mode: 'recap', label: 'Recap last 5 min', icon: '≡' },
@@ -17,7 +17,7 @@ export type AskResult = { answer: string; source: string; model?: string; ms: nu
 
 const q = (c: Cue) => `“${c.text.replace(/\s+/g, ' ')}”`;
 
-export function offlineAnswer(mode: AskMode, cues: Cue[], t: number): string {
+export function offlineAnswer(mode: AskMode, cues: Cue[], t: number, question?: string): string {
   const safe = cuesUpTo(cues, t);
   const last = safe[safe.length - 1];
   if (!last) return 'No one has spoken yet, so there is nothing to miss. Enjoy the opening!';
@@ -35,6 +35,8 @@ export function offlineAnswer(mode: AskMode, cues: Cue[], t: number): string {
       return `${q(last)} (at ${fmtTime(last.s)}) answers ${safe.length > 1 ? q(safe[safe.length - 2]) : 'the opening scene'}.`;
     case 'translate':
       return `${q(last)}\nTranslation needs a connection: you're offline.`;
+    case 'ask':
+      return `You asked “${question || ''}”. Free questions need a connection. The latest line was ${q(last)} at ${fmtTime(last.s)}.`;
     case 'who':
       return `${q(last)} is part of the conversation on screen now. Speaker detection needs a connection.`;
   }
@@ -48,11 +50,11 @@ function tidy(s: string): string {
     .trim();
 }
 
-export async function askTheTv(mode: AskMode, cues: Cue[], t: number, title: string, since?: number): Promise<AskResult> {
+export async function askTheTv(mode: AskMode, cues: Cue[], t: number, title: string, since?: number, question?: string): Promise<AskResult> {
   const t0 = Date.now();
   const safe = cuesUpTo(cues, t);
   if (BUILD.offlineAsk) {
-    return { answer: offlineAnswer(mode, cues, t), source: 'offline', ms: Date.now() - t0, cuesUsed: safe.length };
+    return { answer: offlineAnswer(mode, cues, t, question), source: 'offline', ms: Date.now() - t0, cuesUsed: safe.length };
   }
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 12000);
@@ -60,7 +62,7 @@ export async function askTheTv(mode: AskMode, cues: Cue[], t: number, title: str
     const r = await fetch(`${API_BASE}/api/ask`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode, t, title, since, lang: 'es', cues: safe.map(c => ({ s: c.s, e: c.e, text: c.text })) }),
+      body: JSON.stringify({ mode, t, title, since, question, lang: 'es', cues: safe.map(c => ({ s: c.s, e: c.e, text: c.text })) }),
       signal: ctl.signal,
     });
     const j = await r.json();
@@ -68,7 +70,7 @@ export async function askTheTv(mode: AskMode, cues: Cue[], t: number, title: str
     return { answer: tidy(j.answer), source: j.source || 'server', model: j.model, ms: Date.now() - t0, cuesUsed: safe.length };
   } catch (e) {
     console.log(`[CTTV] ask ${mode} offline fallback: ${String(e)}`);
-    return { answer: offlineAnswer(mode, cues, t), source: 'offline', ms: Date.now() - t0, cuesUsed: safe.length };
+    return { answer: offlineAnswer(mode, cues, t, question), source: 'offline', ms: Date.now() - t0, cuesUsed: safe.length };
   } finally {
     clearTimeout(timer);
   }
