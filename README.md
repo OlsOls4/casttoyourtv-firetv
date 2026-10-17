@@ -16,14 +16,16 @@ You scan a QR code on the TV and send a video and its subtitles from your phone.
 
 **No spoilers.** The model only sees subtitle cues that have already started, filtered on the TV and again on the server. It never gets the film's future dialogue.
 
-![Contact sheet from CI](docs/contact-sheet.png)
+![Pair screen, web sender, playback with subtitles and the five Ask the TV answers, captured on the Vega Virtual Device in CI](docs/contact-sheet.png)
+
+▶ **Demo video (1080p, 2½ min, recorded in CI on the VVD):** [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4)
 
 ## Demo video and screenshots
 
-Every CI run boots the **Vega Virtual Device** on a free GitHub-hosted runner and drives the app with remote-key presses:
+Every CI run ([latest verified run](https://github.com/OlsOls4/casttoyourtv-firetv/actions/runs/39060876853)) boots the **Vega Virtual Device** on a free GitHub-hosted runner and drives the app with remote-key presses:
 
 1. pair screen
-2. a "phone" casts through the relay
+2. the web sender page opened from the QR link (headless Chrome) casts through the relay
 3. playback with subtitles
 4. Ask the TV: all five questions
 5. resume
@@ -49,7 +51,7 @@ The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` ar
                                     prompt → short answer                          if the network fails
 ```
 
-* **App** (`app-src/`, overlaid on the official `helloWorld` template by CI):
+* **App** (`app/`, generated with `vega project generate --template helloWorld`, then customised):
   * `src/App.tsx`: switches between the pair screen and the player.
   * `src/ct/PairScreen.tsx`: 10-foot pair screen. Big QR code (rendered with plain Views from `qrcode-generator`), the 6-character code, a live relay status, and D-pad-focusable **Play the demo film** and **New code** buttons.
   * `src/ct/PlayerScreen.tsx`: playback through `@amazon-devices/react-native-w3cmedia` (`VideoPlayer` + `KeplerVideoSurfaceView`). Subtitles are parsed by our own SRT/WebVTT parser (`subtitles.ts`) and drawn as an overlay. Left/right seek ±10 s, play/pause works, and Back closes the panel or exits. If the decoder doesn't advance (for example on an emulator without hardware video), a subtitle clock keeps the cues moving so the experience never dead-ends.
@@ -61,19 +63,20 @@ The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` ar
   * `public/media/`: the demo clip, its subtitles and a poster image.
 * **CI** (`.github/workflows/firetv.yml`, `ci/scripts/`):
   * Uses the composite action [`OlsOls4/vega-vvd-ci`](https://github.com/OlsOls4/vega-vvd-ci). It installs the Vega SDK, enables KVM and boots the VVD headlessly with non-black captures.
-  * `prepare-app.sh` generates the template, overlays our sources, adds dependencies and W3C-media privileges, and builds `build:release`.
-  * `demo.sh` drives the app with `inputd-cli button_press`. It captures screenshots and records with the emulator console's `screenrecord`.
+  * `prepare-app.sh` writes the build-time config (a fixed pairing code per run, so CI can cast to it), runs the unit tests and builds `build:release`.
+  * `demo.sh` drives the app with `inputd-cli button_press`. It casts through the real web sender page, then captures screenshots and records with the emulator console's `screenrecord`.
 
 ## Run it yourself
 
-**On a machine with the Vega SDK (Linux x86_64 or macOS):**
+**On a machine with the Vega SDK 0.24 and Node 22 (Linux x86_64 or macOS):**
 
 ```bash
-vega project generate --template helloWorld --name CastToYourTV --packageId com.olsols4.casttoyourtv --outputDir app
-cp -r app-src/. app/
-APP_DIR=$PWD/app ci/scripts/prepare-app.sh        # adds deps + manifest privileges, builds the vpkg
+cd app
+npm install
+npm run build:release                      # -> build/x86_64-release/casttoyourtv_x86_64.vpkg (+ aarch64/armv7)
 vega virtual-device start
-vega run-app app/build/x86_64-release/casttoyourtv_x86_64.vpkg com.olsols4.casttoyourtv.main -d VirtualDevice
+vega run-app build/x86_64-release/casttoyourtv_x86_64.vpkg com.olsols4.casttoyourtv.main -d VirtualDevice
+npx jest                                   # unit tests (subtitle parser, spoiler-safe offline answers)
 ```
 
 Remote keys:
@@ -93,7 +96,7 @@ Remote keys:
 cd server && npx vercel deploy --prod
 ```
 
-Set `GEMINI_API_KEY` and/or `GROQ_API_KEY` as encrypted env vars. `GET /api/health` shows which keys are configured.
+Set `GEMINI_API_KEY` and/or `GROQ_API_KEY` as encrypted env vars (the live deployment uses Gemini). `GET /api/health` shows which keys are configured.
 
 Try the API:
 

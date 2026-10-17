@@ -88,9 +88,6 @@ tail -40 "$OUT/logs/app-log.txt" 2>/dev/null || true
 if [[ -s "$OUT/demo-console.webm" ]]; then
   ffmpeg -y -loglevel error -i "$OUT/demo-console.webm" -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -movflags +faststart "$OUT/ask-the-tv-demo.mp4" || true
 fi
-if command -v montage >/dev/null; then
-  montage "$OUT"/shots/*.png -tile 4x -geometry 480x270+4+4 -background '#0B0F1A' "$OUT/contact-sheet.png" || true
-else
-  ffmpeg -y -loglevel error -pattern_type glob -i "$OUT/shots/[0-9]*.png" -vf "scale=480:270,tile=4x6:padding=6:color=0x0B0F1A" -frames:v 1 "$OUT/contact-sheet.png" || true
-fi
+python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q --user --break-system-packages pillow >/dev/null 2>&1 || true
+python3 "$(dirname "$0")/contact_sheet.py" "$OUT/shots" "$OUT/contact-sheet.png" || true
 ls -la "$OUT" "$OUT/shots"
