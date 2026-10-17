@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cast to Your TV · Send to Fire TV</title>
+<style>
+  :root { --bg:#0b0f1a; --card:#141a2b; --ink:#f4f1ea; --mute:#9aa3b8; --acc:#ffb547; --acc2:#7c5cff; }
+  * { box-sizing:border-box }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:radial-gradient(1200px 600px at 10% -10%, #2a1f55 0%, transparent 60%), var(--bg); color:var(--ink); min-height:100vh }
+  main { max-width:520px; margin:0 auto; padding:28px 20px 60px }
+  .brand { display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.2px }
+  .dot { width:12px; height:12px; border-radius:50%; background:var(--acc); box-shadow:0 0 18px var(--acc) }
+  h1 { font-size:28px; line-height:1.15; margin:22px 0 6px }
+  p.sub { color:var(--mute); margin:0 0 22px }
+  .card { background:var(--card); border:1px solid #232b44; border-radius:18px; padding:18px; margin-bottom:14px }
+  label { display:block; font-size:13px; color:var(--mute); margin:12px 0 6px }
+  input { width:100%; padding:13px 14px; border-radius:12px; border:1px solid #2c3554; background:#0e1322; color:var(--ink); font-size:16px }
+  input.code { font-size:28px; letter-spacing:8px; text-transform:uppercase; text-align:center; font-weight:700 }
+  button { width:100%; margin-top:16px; padding:15px; border:0; border-radius:14px; font-size:17px; font-weight:700; background:linear-gradient(90deg,var(--acc),#ff7a59); color:#1a1205; cursor:pointer }
+  button.ghost { background:#1d2540; color:var(--ink); font-weight:600 }
+  .status { margin-top:12px; min-height:22px; color:var(--mute) }
+  .ok { color:#6ee7a8 } .err { color:#ff8a8a }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px }
+  .chip { font-size:12px; padding:6px 10px; border-radius:999px; background:#1d2540; color:#cfd6ea }
+  footer { color:var(--mute); font-size:12px; margin-top:26px; line-height:1.5 }
+  a { color:#c9b8ff }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><span class="dot"></span> Cast to Your TV · Fire TV</div>
+  <h1>Send a video to your TV</h1>
+  <p class="sub">Enter the 6-character code on your TV, paste a video link and (optionally) subtitles. Then press <b>Select</b> on the remote to <b>Ask the TV</b> about what you're watching — spoiler-free.</p>
+  <form class="card" id="f">
+    <label for="code">TV code</label>
+    <input id="code" class="code" maxlength="8" autocomplete="off" placeholder="ABC123" required>
+    <label for="video">Video URL (MP4 / HLS / DASH)</label>
+    <input id="video" type="url" required>
+    <label for="subs">Subtitles URL (SRT or WebVTT)</label>
+    <input id="subs" type="url">
+    <label for="title">Title</label>
+    <input id="title">
+    <label for="start">Start at (seconds)</label>
+    <input id="start" type="number" min="0" value="100">
+    <button type="submit">Cast to TV</button>
+    <button type="button" class="ghost" id="demo">Use the Sintel demo</button>
+    <div class="status" id="st"></div>
+  </form>
+  <div class="card">
+    <div style="font-weight:700">Ask the TV</div>
+    <div class="chips"><span class="chip">What did I miss?</span><span class="chip">Recap last 5 min</span><span class="chip">Explain this line</span><span class="chip">Translate line</span><span class="chip">Who's speaking?</span></div>
+    <p class="sub" style="margin:10px 0 0">Answers use only the subtitles up to the moment you paused.</p>
+  </div>
+  <footer>Companion to <a href="https://casttoyourtv.com/">casttoyourtv.com</a>. Demo film: <i>Sintel</i> © Blender Foundation, <a href="https://durian.blender.org/">durian.blender.org</a>, licensed CC BY 3.0.</footer>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  const $ = id => document.getElementById(id);
+  const DEMO = { video: location.origin + '/media/sintel-0-330-480p.mp4', subs: location.origin + '/media/sintel_en.srt', title: 'Sintel (Blender Foundation, CC BY)', start: 100 };
+  $('code').value = (q.get('code') || '').toUpperCase();
+  $('video').value = q.get('video') || DEMO.video;
+  $('subs').value = q.get('subs') || DEMO.subs;
+  $('title').value = q.get('title') || DEMO.title;
+  $('demo').onclick = () => { $('video').value = DEMO.video; $('subs').value = DEMO.subs; $('title').value = DEMO.title; $('start').value = DEMO.start; };
+  $('f').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('st'); st.className = 'status'; st.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: $('code').value.trim().toUpperCase(), videoUrl: $('video').value, subtitleUrl: $('subs').value, title: $('title').value, startAt: Number($('start').value) || 0 }) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'failed');
+      st.className = 'status ok'; st.textContent = j.tvOnline ? 'Sent! Your TV is starting playback.' : 'Sent. It will start as soon as your TV checks in.';
+    } catch (err) { st.className = 'status err'; st.textContent = 'Could not send: ' + err.message; }
+  };
+</script>
+</body>
+</html>

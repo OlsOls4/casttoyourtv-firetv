@@ -1,0 +1,75 @@
+name: Fire TV (Vega VVD) build + demo
+
+# Builds the Vega OS (Fire TV) React Native app and runs a scripted remote-control demo
+# on the Vega Virtual Device on a free GitHub-hosted ubuntu-24.04 runner.
+# Uploads step screenshots, a 1080p MP4 of the "Ask the TV" flow and the vpkg.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "server/**"]
+  workflow_dispatch:
+    inputs:
+      offline-ask:
+        description: "Force deterministic offline answers"
+        type: boolean
+        default: false
+
+concurrency:
+  group: firetv-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -eo pipefail {0}
+
+env:
+  APP_NAME: CastToYourTV
+  PACKAGE_ID: com.olsols4.casttoyourtv
+  API_BASE: https://casttoyourtv-firetv.vercel.app
+
+jobs:
+  vvd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Installs the Vega SDK, enables KVM and boots the VVD in the background.
+      - uses: OlsOls4/vega-vvd-ci@main
+        with:
+          boot: background
+
+      - name: Pairing code for this run
+        run: echo "PAIR_CODE=CI$(printf '%04d' $(( ${{ github.run_id }} % 10000 )))" >> "$GITHUB_ENV"
+
+      - name: Build app (while the VVD boots)
+        env:
+          OFFLINE_ASK: ${{ github.event.inputs.offline-ask == 'true' && 'true' || 'false' }}
+          BUILD_LABEL: run-${{ github.run_number }}
+        run: ci/scripts/prepare-app.sh 2>&1 | tee "$OUT/logs/build.log"
+
+      - name: Wait for VVD
+        run: wait-vvd.sh 600
+
+      - name: Demo — pair, cast, subtitles, Ask the TV (screenshots + recording)
+        run: ci/scripts/demo.sh 2>&1 | tee "$OUT/logs/demo.log"
+
+      - name: Stop VVD
+        if: always()
+        run: |
+          cp -r ~/vega/logs "$OUT/logs/vega-logs" 2>/dev/null || true
+          stop-vvd.sh
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firetv-demo
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
