@@ -14,11 +14,15 @@ You scan a QR code on the TV and send a video and its subtitles from your phone.
 | **Translate line** | The latest line in Spanish, plus a note on nuance |
 | **Who's speaking?** | The most likely speaker, with the clue in the dialogue |
 
+**Or ask out loud from your phone.** The page you cast from has a mic button (Web Speech API). Ask anything, like *"Why is she looking for a dragon?"*, and the TV pauses, shows your question and answers it on screen. Vega has no app-level speech-to-text yet, so the phone acts as the microphone while the remote stays in charge.
+
+![A question asked out loud on the phone, answered on the Vega Virtual Device without spoilers](docs/19-ask-from-phone.png)
+
 **No spoilers.** The model only sees subtitle cues that have already started, filtered on the TV and again on the server. It never gets the film's future dialogue.
 
 ![Pair screen, web sender, playback with subtitles and the five Ask the TV answers, captured on the Vega Virtual Device in CI](docs/contact-sheet.png)
 
-▶ **Demo video (1080p, 2½ min, recorded in CI on the VVD):** [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4)
+▶ **Demo video (1080p, 2¾ min, recorded in CI on the VVD):** [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4)
 
 ## Demo video and screenshots
 
@@ -28,8 +32,9 @@ Every CI run ([latest verified run](https://github.com/OlsOls4/casttoyourtv-fire
 2. the web sender page opened from the QR link (headless Chrome) casts through the relay
 3. playback with subtitles
 4. Ask the TV: all five questions
-5. resume
-6. back
+5. a free question asked from the phone page
+6. resume
+7. back
 
 The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` artifact ([Actions](https://github.com/OlsOls4/casttoyourtv-firetv/actions)). Selected frames live in [`docs/`](docs/), and every step is in [docs/contact-sheet-all-steps.png](docs/contact-sheet-all-steps.png).
 
@@ -39,7 +44,7 @@ The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` ar
  Phone / browser                       Vercel (serverless, free tier)                 Fire TV (Vega OS)
  ───────────────                       ───────────────────────────────                ─────────────────
  /s/?code=ABC123  ── POST cast ──►  /api/relay  ◄── GET poll every 2 s ───  Pair screen (QR + 6-char code)
- (web sender)                       (code → {videoUrl, subtitleUrl, …})          │ cast received
+ (web sender)                       (code → cast, phone questions)          │ cast received
                                                                                  ▼
                                     /media/* (demo MP4, SRT, poster)  ◄──  Player: W3C Media VideoPlayer
                                                                            + KeplerVideoSurfaceView
@@ -58,8 +63,8 @@ The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` ar
   * `src/ct/AskPanel.tsx` + `ask.ts`: the Ask the TV side panel. It sends `POST /api/ask` with only the cues up to the pause point, uses a 12 s timeout, and falls back to deterministic offline answers.
 * **Backend** (`server/`, deployed at <https://casttoyourtv-firetv.vercel.app>):
   * `api/ask.js` + `lib/ask-core.js`: the spoiler-safe prompt. It tries Groq (Llama 3.3 70B) when `GROQ_API_KEY` is set, then Gemini (`gemini-flash-lite-latest`, falling back to other models), then the offline answer. The response includes `source`, `model`, `cuesUsed` and `ms`.
-  * `api/relay.js`: the pairing relay. The sender POSTs a cast for a code and the TV polls a GET, which consumes the cast. State lives in the warm function's memory (fine for a demo). Swap in Redis/KV for production.
-  * `public/s/`: the web sender page that the QR code opens (`/s/?code=XXXXXX`).
+  * `api/relay.js`: the pairing relay. The sender POSTs a cast (or a `question`) for a code. The pair screen polls for casts, and the player polls with `&q=1` for phone questions. State lives in the warm function's memory (fine for a demo). Swap in Redis/KV for production.
+  * `public/s/`: the web sender page that the QR code opens (`/s/?code=XXXXXX`). It casts, and it asks free questions by voice (Web Speech API) or by typing.
   * `public/media/`: the demo clip, its subtitles and a poster image.
 * **CI** (`.github/workflows/firetv.yml`, `ci/scripts/`):
   * Uses the composite action [`OlsOls4/vega-vvd-ci`](https://github.com/OlsOls4/vega-vvd-ci). It installs the Vega SDK, enables KVM and boots the VVD headlessly with non-black captures.
@@ -104,6 +109,10 @@ Try the API:
 curl -s https://casttoyourtv-firetv.vercel.app/api/ask -H 'content-type: application/json' \
   -d '{"mode":"recap","t":150,"title":"Sintel","cues":[{"s":107,"e":110,"text":"This blade has a dark past."},{"s":143,"e":145,"text":"A dragon."}]}'
 ```
+
+## Friction log
+
+Everything that slowed us down with the Vega SDK, the VVD and the submission is in [docs/FRICTION_LOG.md](docs/FRICTION_LOG.md), with severity, workaround and a suggestion for each.
 
 ## Credits
 
