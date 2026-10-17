@@ -31,7 +31,7 @@ Every CI run ([latest verified run](https://github.com/OlsOls4/casttoyourtv-fire
 5. resume
 6. back
 
-The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` artifact ([Actions](https://github.com/OlsOls4/casttoyourtv-firetv/actions)). Selected frames live in [`docs/`](docs/).
+The run uploads screenshots, a 1080p MP4 and the `.vpkg` as the `firetv-demo` artifact ([Actions](https://github.com/OlsOls4/casttoyourtv-firetv/actions)). Selected frames live in [`docs/`](docs/), and every step is in [docs/contact-sheet-all-steps.png](docs/contact-sheet-all-steps.png).
 
 ## Architecture
 
