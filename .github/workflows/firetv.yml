@@ -6,7 +6,7 @@ name: Fire TV (Vega VVD) build + demo
 
 on:
   push:
-    branches: [main, polish, mediactl]
+    branches: [main, polish]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
     inputs:
@@ -46,7 +46,7 @@ jobs:
           node --test server/test/*.test.js 2>&1 | tee artifacts/logs/server-tests.log
 
       # Installs the Vega SDK, enables KVM and boots the VVD in the background.
-      - uses: OlsOls4/vega-vvd-ci@main
+      - uses: OlsOls4/vega-vvd-ci@v1
         with:
           boot: background
 

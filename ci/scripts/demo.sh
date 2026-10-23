@@ -24,6 +24,7 @@ echo "::group::VVD network check"
 timeout 25 vega exec vda shell "curl -s -m 10 $API/api/health || wget -qO- $API/api/health" 2>&1 | tee "$OUT/logs/vvd-network.txt" || true
 echo "::endgroup::"
 
+LOG_SINCE=$(date -u +%Y-%m-%dT%H:%M:%S)
 shot launcher
 record.sh start "$OUT/demo-console.webm" 2>&1 | tee "$OUT/logs/record-start.log"
 T0=$SECONDS
@@ -96,7 +97,7 @@ record.sh stop 2>&1 | tee "$OUT/logs/record-stop.log"
 # Snapshot the device log between the two recordings (film paused so the household demo
 # starts at the same point in the dialogue).
 p playpause
-timeout 45 vega exec vda shell loggingctl log -o short_precise > "$OUT/logs/device-log-mid.txt" 2>&1 || true
+timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" -p info > "$OUT/logs/device-log-mid.txt" 2>&1 || true
 echo "mid log: $(wc -l < "$OUT/logs/device-log-mid.txt") lines, $(grep -ac CTTV "$OUT/logs/device-log-mid.txt") CTTV"
 
 # ---------------- household features, driven from the phone page (second recording) ----------------
@@ -119,9 +120,11 @@ echo "::group::Household: stepping out / I'm back, who's asking"
 record.sh start "$OUT/demo-household.webm" 2>&1 | tee "$OUT/logs/record2-start.log"
 T0=$SECONDS
 p playpause; sleep 1
+# rewind 10 s so Sam's absence spans the 2:2x-2:3x dialogue whatever the exact resume point
+p left; sleep 1
 phone "name=Sam&lang=en&event=away&autoevent=1" sam-away 'Got it' '{"code":"'"$PAIR_CODE"'","event":"away","name":"Sam","lang":"en"}'
 sleep 2; shot hh-sam-stepped-out
-sleep 14; shot hh-while-sam-away
+sleep 20; shot hh-while-sam-away
 phone "name=Sam&lang=en&event=back&autoevent=1" sam-back 'Welcome back|Queued' '{"code":"'"$PAIR_CODE"'","event":"back","name":"Sam","lang":"en"}'
 sleep 8; shot hh-sam-welcome-back
 p back; sleep 3
@@ -152,9 +155,12 @@ fi
 sleep 4
 echo "demo length $((SECONDS-T0))s"
 # loggingctl needs at least one option: a bare `loggingctl log` (or a quoted pipeline) only prints its help.
-timeout 60 vega exec vda shell loggingctl log -o short_precise > "$OUT/logs/device-log.txt" 2>&1 || true
-# fallback form in case the full dump is refused
-grep -aq CTTV "$OUT/logs/device-log.txt" || timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" >> "$OUT/logs/device-log.txt" 2>&1 || true
+# `loggingctl log -o …` only returns the newest ~80 lines, so ask for our app's lines specifically.
+: > "$OUT/logs/device-log.txt"
+for args in "-v $PACKAGE_ID -p info" "-v $PACKAGE_ID" "-t $PACKAGE_ID" "-v $PACKAGE_ID -S $LOG_SINCE" "-S $LOG_SINCE -p info"; do
+  echo "=== loggingctl log $args" >> "$OUT/logs/device-log.txt"
+  timeout 45 vega exec vda shell loggingctl log $args >> "$OUT/logs/device-log.txt" 2>&1 || true
+done
 cat "$OUT/logs/device-log-mid.txt" "$OUT/logs/device-log.txt" 2>/dev/null | grep -a "CTTV" | awk '!seen[$0]++' > "$OUT/logs/app-log.txt" || true
 echo "::group::app log ([CTTV])"; cat "$OUT/logs/app-log.txt"; echo "::endgroup::"
 # Real playback check: the subtitle clock must not be hiding a decoder regression.
