@@ -46,7 +46,7 @@ jobs:
           node --test server/test/*.test.js 2>&1 | tee artifacts/logs/server-tests.log
 
       # Installs the Vega SDK, enables KVM and boots the VVD in the background.
-      - uses: OlsOls4/vega-vvd-ci@v1
+      - uses: OlsOls4/vega-vvd-ci@v1.0.0
         with:
           boot: background
 
