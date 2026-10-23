@@ -22,9 +22,11 @@ The answer card always belongs to the focused chip: move focus and a stale answe
 * **Ask out loud or by typing** (Web Speech API). The TV pauses and shows *"MIA ASKED OUT LOUD"* with Mia's question, and answers **in Mia's language**.
 * **Tap "Stepping out" / "I'm back".** The TV notes the moment you left (*"Sam stepped out at 2:26 · I'll catch Sam up"*) and keeps playing for everyone else. When you tap *I'm back*, it pauses and shows *"Welcome back, Sam · You missed 2:26 → 2:38"* with a recap of **only the subtitle lines in that stretch**: nothing before you left, nothing after now.
 
+* **No Fire TV? Try it on the phone.** The same spoiler-safe answer also appears on the page, so a judge can try [the live page](https://casttoyourtv-firetv.vercel.app/s/) with no TV and no code.
+
 Vega has no app-level speech-to-text yet, so the phone acts as the microphone while the remote stays the shared control.
 
-**No spoilers, by construction.** The model only sees subtitle cues that have already started, filtered on the TV (`cuesUpTo`) and again on the server (`spoilerSafe`). `server/test/ask-core.test.js` proves, for every mode including the missed-stretch recap, that no cue after the pause point reaches the prompt, and CI runs it on every push.
+**No spoilers, by construction.** The model only sees subtitle cues that have already started, filtered on the TV (`cuesUpTo`) and again on the server (`spoilerSafe`). `server/test/ask-core.test.js` proves, for every mode including the missed-stretch recap, that no cue after the pause point reaches the prompt, and CI runs it on every push. If **no line has been spoken yet** (or the request has no usable subtitles), the server answers with a built-in line and **never calls a model**, and the film's title is not sent to the model at all, so it can't fill the gap from what it already knows about the film (`server/test/round2.test.js`).
 
 ![Sam taps "I'm back" on the phone: the TV pauses and recaps only the lines Sam missed](docs/23-hh-sam-welcome-back.png)
 
@@ -83,7 +85,7 @@ PLAYBACK: confirmed by the Vega media pipeline in com.olsols4.casttoyourtv
 
 ## Demo and screenshots
 
-Every CI run ([latest green run](https://github.com/OlsOls4/casttoyourtv-firetv/actions/runs/39945908768)) boots the **Vega Virtual Device** on a free GitHub-hosted runner and drives the app with remote-key presses, while a headless Chrome plays the phone:
+Every CI run ([latest green run](https://github.com/OlsOls4/casttoyourtv-firetv/actions/runs/39967499636)) boots the **Vega Virtual Device** on a free GitHub-hosted runner and drives the app with remote-key presses, while a headless Chrome plays the phone:
 
 1. pair screen
 2. the web sender page opened from the QR link casts through the relay
@@ -102,15 +104,16 @@ The run uploads step screenshots, two 1080p MP4s and the `.vpkg` as the `firetv-
 | Today | Plan |
 |---|---|
 | Works on video cast as a URL with an SRT/VTT file, not inside third-party streaming apps | Keep the focus on what households can cast with subtitles: films they own, lectures, foreign-language and Creative Commons titles |
-| Relay state lives in a warm serverless function's memory, so a cold start can drop a pending cast or question | Redis/KV-backed relay |
-| Answers come from Gemini Flash-Lite, then Groq (gpt-oss-20b) if Gemini is slow or overloaded, then deterministic offline answers | Keep the chain; offline answers mean the TV never dead-ends |
+| The relay keeps state in the Vercel Runtime Cache: shared by every function instance in the region and free on Hobby, but non-durable (entries can be evicted, 15-min TTL). The phone page re-sends each item until the TV confirms it, so an evicted write is retried rather than lost silently. Load test on production (`server/test/relay-load.py`, no retries): 10 parallel pairings went from 14/20 casts delivered to 20/20, 6 TVs + 6 phones from 21/30 questions to 30/30, and 40 parallel pairings now deliver 80/80 casts and 80/80 questions (the round-2 tester measured 6/80 casts before) | A durable store (Redis/KV) before an Appstore launch |
+| Answers come from a hedged race: Gemini Flash-Lite first (1.4 s per model), Groq (gpt-oss-20b) from 0.9 s or as soon as Gemini fails, first valid answer wins, then deterministic offline answers. Measured on production over 28 calls: median 0.7 s, worst 1.6 s (before: a 4.5 s worst case in 8 calls, and the round-2 tester saw 3.7–4.0 s on most calls) | Keep the chain; offline answers mean the TV never dead-ends |
 | Voice goes through the phone | Remote-mic voice once Vega exposes app-level speech-to-text (see our feature request in the friction log) |
+| The phone page shows the same answer as the TV, but it estimates the film position from when it cast (editable), since the TV doesn't report its position back | Report the TV's position through the relay |
 | Tested on the Vega Virtual Device only | Test on a Vega Fire TV Stick before an Appstore submission |
 
 ## Roadmap to the Amazon Appstore
 
 1. Appstore submission of the Vega build
-2. Persistent relay
+2. Durable relay store (today: Vercel Runtime Cache plus sender retries)
 3. Ask the TV as a casttoyourtv.com Plus/Pro feature (casting stays free; the deterministic offline answers stay on the free tier)
 4. One-press voice on the Fire TV remote once Vega exposes an app-level speech API
 
@@ -141,10 +144,10 @@ The run uploads step screenshots, two 1080p MP4s and the `.vpkg` as the `firetv-
   * `src/ct/AskPanel.tsx` + `ask.ts`: the Ask the TV side panel. It sends `POST /api/ask` with only the cues up to the pause point (plus the viewer's name, answer language and, for *I'm back*, the time they stepped out), uses a 12 s timeout, and falls back to deterministic offline answers. The answer card follows the focused chip.
   * `src/ct/mediaControls.ts`: the `KeplerMediaControlHandler` subclass for Vega Media Controls.
 * **Backend** (`server/`, deployed at <https://casttoyourtv-firetv.vercel.app>):
-  * `api/ask.js` + `lib/ask-core.js`: the spoiler-safe prompt (modes `miss`, `recap`, `explain`, `translate`, `who`, `ask` and `missed`, the stretch between stepping out and now). It tries Gemini Flash-Lite with short per-model timeouts, then Groq (`openai/gpt-oss-20b`), then the offline answer, so a busy model never stalls the TV. `replyLang` sets the answer language, `lang` the translation target. The response includes `source`, `model`, `cuesUsed` and `ms`.
+  * `api/ask.js` + `lib/ask-core.js`: the spoiler-safe prompt (modes `miss`, `recap`, `explain`, `translate`, `who`, `ask` and `missed`, the stretch between stepping out and now). It races Gemini Flash-Lite (1.4 s per model) against Groq (`openai/gpt-oss-20b`, started after 0.9 s or as soon as Gemini fails) and takes the first valid answer, then falls back to the offline answer, so a busy model never stalls the TV. With no dialogue yet, an invalid time, or a step-out time after now, it answers with a built-in line and makes no model call (`source: "rule"`). `replyLang` sets the answer language, `lang` the translation target. The response includes `source`, `model`, `providerMs` (all describing the provider whose answer is shown), `cuesUsed` and `ms`.
   * `test/ask-core.test.js`: `node --test` checks that no cue after the pause point reaches the prompt in any mode, that the missed-stretch window is exact, and that names and questions are sanitised.
-  * `api/relay.js`: the pairing relay. The sender POSTs a cast, a `question` (with `name`/`lang`) or an `event` (`away`, `back`, `viewer`) for a code. The pair screen polls for casts, and the player polls with `&q=1` for phone items. State lives in the warm function's memory (fine for a demo). Swap in Redis/KV for production.
-  * `public/s/`: the web sender page that the QR code opens (`/s/?code=XXXXXX`). It casts, remembers each viewer's name and language, asks free questions by voice (Web Speech API, in the viewer's language) or by typing, and has *Stepping out* / *I'm back* buttons.
+  * `api/relay.js`: the pairing relay. The sender POSTs a cast, a `question` (with `name`/`lang`) or an `event` (`away`, `back`, `viewer`) for a code. The pair screen polls for casts, and the player polls with `&q=1` for phone items. State lives in the Vercel Runtime Cache (`lib/store.js`; in-memory when run locally). Each key has a single writer (sender, phone or TV) so concurrent writes can't erase each other. Items carry an id; `GET ?code=…&status=<id>` tells the sender whether the TV took it, and re-sends with the same id are dropped.
+  * `public/s/`: the web sender page that the QR code opens (`/s/?code=XXXXXX`). It casts, remembers each viewer's name and language, asks free questions by voice (Web Speech API, in the viewer's language) or by typing, and has *Stepping out* / *I'm back* buttons. Each item is re-sent until the TV confirms it. The answer is also shown on the phone (same spoiler-safe `/api/ask`, at an estimated position you can edit), so you can try Ask the TV without a Fire TV and without a code.
   * `public/media/`: the demo clip, its subtitles and a poster image.
 * **CI** (`.github/workflows/firetv.yml`, `ci/scripts/`):
   * Runs the server tests (`node --test`), then uses the composite action [`OlsOls4/vega-vvd-ci@v1.0.0`](https://github.com/OlsOls4/vega-vvd-ci). It installs the Vega SDK, enables KVM and boots the VVD headlessly with non-black captures.
@@ -162,7 +165,10 @@ npm run build:release                      # -> build/x86_64-release/casttoyourt
 vega virtual-device start
 vega run-app build/x86_64-release/casttoyourtv_x86_64.vpkg com.olsols4.casttoyourtv.main -d VirtualDevice
 npx jest                                   # unit tests (subtitle parser, spoiler-safe offline answers, honest labels)
-cd .. && node --test server/test/*.test.js # spoiler-boundary tests for the server prompt
+npm run lint                               # 0 errors
+cd .. && node --test server/test/*.test.js # spoiler boundary, no-dialogue guard, provider race, relay (76 tests)
+python3 server/test/relay-load.py https://casttoyourtv-firetv.vercel.app 40   # relay under concurrent use
+python3 server/test/ask-live.py https://casttoyourtv-firetv.vercel.app         # live latency + spoiler guard
 ```
 
 Remote keys:
@@ -183,7 +189,7 @@ Remote keys:
 cd server && npx vercel deploy --prod
 ```
 
-Set `GEMINI_API_KEY` and/or `GROQ_API_KEY` as encrypted env vars (the live deployment has both: Gemini first, Groq as the fallback). `GET /api/health` shows which keys are configured.
+Set `GEMINI_API_KEY` and/or `GROQ_API_KEY` as encrypted env vars (the live deployment has both, raced as above). `GET /api/health` shows which keys are configured and which relay store is in use.
 
 Try the API:
 

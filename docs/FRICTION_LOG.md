@@ -38,8 +38,9 @@ The original log used "Medium-High" and "Low-Medium" for some entries. We've now
 | F16 | Recording the VVD window with `x11grab` comes out black | Low | VVD | Document it, and make the F4 recorder the supported path. |
 | F17 | Build papercuts in an untouched helloWorld template | Low | Templates / build | Set `build_number` in the template, fix the `undefined` path segment, and document a single-arch build. |
 | F18 | The docs' `llms.txt` isn't reachable by non-browser clients | Low | Docs | Serve `llms.txt` as `text/plain` without the portal wrapper. |
+| F19 | The Vega ESLint preset fails `npm run release` on a performance hint, and writes an untracked state file into the project | Low | Templates / lint | Make `kepler/animated` a warning that says which props the native driver supports on Vega, and add `generated/` to the template's `.gitignore`. |
 
-**18 problem entries:** 4 High, 8 Medium, 6 Low, 0 Critical. There are also [2 "what worked well" notes](#what-worked-well) and [1 hackathon-platform note](#hackathon-platform-devpost-not-amazon-tooling).
+**19 problem entries:** 4 High, 8 Medium, 7 Low, 0 Critical. There are also [2 "what worked well" notes](#what-worked-well) and [1 hackathon-platform note](#hackathon-platform-devpost-not-amazon-tooling).
 
 ---
 
@@ -301,6 +302,17 @@ The original log used "Medium-High" and "Low-Medium" for some entries. We've now
 - **Workaround used:** None for `llms.txt` itself. We read the individual HTML docs pages instead.
 - **Suggestion:** Serve `llms.txt` as `text/plain`, without the portal wrapper.
 
+### F19. The Vega ESLint preset fails `npm run release` on a performance hint, and writes an untracked state file into the project
+- **Task attempted:** Make `npm run release` (the template's `lint`, then `test`, then `build:app`) pass from a fresh clone. The round-2 tester found it stopped at lint.
+- **Steps taken:** `npm install`, then `npm run lint` (`eslint src test package.json --ext .ts,.tsx` with `plugin:@amazon-devices/eslint-plugin-kepler/kepler`), on 23 Oct 2026.
+- **Expected:** Performance advice reported as warnings, and lint leaving the working tree clean.
+- **Actual:**
+  - `'useNativeDriver' property is set to 'false'. Set useNativeDriver to 'true' to run animations on UI thread for better performance.` from `@amazon-devices/kepler/animated` is an **error**, so 3 animations fail the whole `release` script. The message links to the best-practices page but doesn't say which animated props the native driver supports on Vega, so you can't tell whether flipping it is safe without a device run.
+  - Each lint run writes `generated/eslint-plugin-kepler/keplerESLintState.json` (`{"fullyDrawn":{"useReportFullyDrawnFound":false},…}`) into the app folder. The template's `.gitignore` doesn't ignore it, so it shows up as an untracked file to commit by mistake.
+- **Severity:** Low
+- **Workaround used:** An inline `eslint-disable-next-line @amazon-devices/kepler/animated -- <reason>` on each animation, because the entry was already submitted and we wouldn't change runtime behaviour without a device test. We added `generated/` to `app/.gitignore`. Lint now reports 0 errors.
+- **Suggestion:** Make `kepler/animated` a warning (or an error only for props that are known to work natively), list the supported props in the message, and add `generated/` to the template `.gitignore`.
+
 ---
 
 ## What worked well
@@ -359,3 +371,11 @@ Run 1 worked first time **because** we started from the community recipe. The en
 | 2 | 39060337721 | ✅ Committed `app/`, web-sender cast via headless Chrome, unit tests 4/4, compact panel. |
 | 3 | 39060876853 | ✅ Ask at 2:25 (10 lines known), Sintel credit, 145 s 1080p MP4. |
 | 4 | 39061447507 | ✅ Same flow, a Pillow contact sheet of all 20 steps, 154 s demo. |
+| 5 | 39065527987 | ✅ Ask the TV from the phone: voice or typed free questions through the relay (17 Oct). |
+| 6 | 39940708302 | ✅ `polish`: who's asking, stepping out / I'm back, answer card follows focus (23 Oct). |
+| 7 | 39943056756 | ✅ `mediactl`: Vega Media Controls (`KeplerMediaControlHandler`) builds and runs on the VVD. |
+| 8 | 39944283245 | ✅ `polish`: switched to `vega-vvd-ci@v1`, app-filtered device logs. |
+| 9 | 39945908768 | ✅ `polish`: README and Vega API table run; real log lines quoted in the README. |
+| 10 | 39948956038 | ✅ `main`: pinned `vega-vvd-ci@v1.0.0`; the submitted build. |
+| 11 | 39966026242 | ✅ `polish`: round-2 fixes (no model call before dialogue, hedged Gemini/Groq race, Runtime Cache relay, answers on the phone), 76/76 server tests, full VVD demo against the new backend. |
+| 12 | 39967499636 | ✅ `main`: the same commit (`f40751b`) on `main`; the phone page confirmed delivery ("Your TV got the question ✓"). |
