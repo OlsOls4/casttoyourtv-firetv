@@ -23,7 +23,8 @@
     "react": "19.2.0",
     "react-native": "0.83.0",
     "@amazon-devices/react-native-w3cmedia": "~2.3.2",
-    "qrcode-generator": "^1.4.4"
+    "qrcode-generator": "^1.4.4",
+    "@amazon-devices/kepler-media-controls": "~1.0.25"
   },
   "engines": {
     "node": ">=20"

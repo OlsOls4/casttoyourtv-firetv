@@ -6,7 +6,7 @@ name: Fire TV (Vega VVD) build + demo
 
 on:
   push:
-    branches: [main, polish]
+    branches: [main, polish, mediactl]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
     inputs:

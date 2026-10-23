@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Image, Text, TouchableOpacity, View } from 'react-native';
-import { BackHandler, HWEvent, useTVEventHandler } from '@amazon-devices/react-native-kepler';
+import { BackHandler, HWEvent, useComponentInstance, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoSurfaceView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { AskPanel, PANEL_W, PhoneQuestion } from './AskPanel';
+import { CttvMediaControls } from './mediaControls';
 import { API_BASE, Cast, COLORS, fmtTime, langName } from './config';
 import { SINTEL_SRT } from './sintelSubs';
 import { activeCue, Cue, parseSubtitles } from './subtitles';
@@ -38,6 +39,8 @@ export function PlayerScreen({ cast, onExit }: Props) {
   const lastAdvance = useRef(Date.now());
   const lastVideoT = useRef(-1);
   const title = cast.title || 'Now playing';
+  const componentInstance = useComponentInstance();
+  const lastToggle = useRef(0);
 
   // ---- subtitles: fetch the URL, fall back to the bundled Sintel subtitles for the demo
   useEffect(() => {
@@ -96,6 +99,19 @@ export function PlayerScreen({ cast, onExit }: Props) {
           clockMode.current = true;
           setState('clock');
         });
+        // Vega Media Controls: system transport / Alexa drive this player (KeplerMediaControlHandler).
+        try {
+          await v.setMediaControlFocus(componentInstance, new CttvMediaControls({
+            play: () => (askOpenRef.current ? closeAsk() : resume()),
+            pause: () => pause(),
+            toggle: () => togglePlay('media control'),
+            seekTo: (s: number) => seek(s - tRef.current),
+            seekBy: (d: number) => seek(d),
+          }));
+          console.log('[CTTV] media controls: setMediaControlFocus OK (KeplerMediaControlHandler registered)');
+        } catch (e) {
+          console.log(`[CTTV] media controls unavailable: ${String(e)}`);
+        }
         v.autoplay = true;
         v.src = cast.videoUrl;
         console.log(`[CTTV] playing ${cast.videoUrl} from ${cast.startAt || 0}s`);
@@ -174,6 +190,15 @@ export function PlayerScreen({ cast, onExit }: Props) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
     toastTimer.current = setTimeout(() => setToast(null), ms);
+  };
+
+  // One toggle per press, whether it arrives as a key event or through Vega Media Controls.
+  const togglePlay = (via: string) => {
+    const now = Date.now();
+    if (now - lastToggle.current < 500) return;
+    lastToggle.current = now;
+    console.log(`[CTTV] play/pause via ${via} -> ${pausedRef.current ? 'play' : 'pause'}`);
+    (pausedRef.current ? resume : pause)();
   };
 
   const openAsk = () => {
@@ -264,7 +289,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     const k = evt.eventType;
     if (askOpen) return;
     if (k === 'menu') openAsk();
-    else if (k === 'playpause') (pausedRef.current ? resume : pause)();
+    else if (k === 'playpause' || k === 'playPause') togglePlay('remote key');
     else if (k === 'left' || k === 'rewind') seek(-10);
     else if (k === 'right' || k === 'fastforward') seek(10);
   });
