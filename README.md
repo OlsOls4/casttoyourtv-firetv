@@ -33,9 +33,9 @@ Vega has no app-level speech-to-text yet, so the phone acts as the microphone wh
 | ![Mia asks in French from her phone; the TV answers her in French](docs/24-hh-mia-asked-in-french.png) | ![Translate line → French, the household language](docs/26-hh-translate-to-french.png) |
 | ![Phone page: who's watching, ask, stepping out](docs/98-phone-household.png) | ![Sam stepped out: the TV notes the time and keeps playing](docs/21-hh-sam-stepped-out.png) |
 
-▶ **Narrated demo video (YouTube):** https://youtu.be/g30fh212Bm0 
+▶ **Narrated demo video (YouTube):** https://youtu.be/jQjg995EgmY 
 
-[![Watch the demo on YouTube](https://img.youtube.com/vi/g30fh212Bm0/hqdefault.jpg)](https://youtu.be/g30fh212Bm0)
+[![Watch the demo on YouTube](https://img.youtube.com/vi/jQjg995EgmY/hqdefault.jpg)](https://youtu.be/jQjg995EgmY)
 
 Raw CI recordings from the VVD: [docs/ask-the-tv-demo.mp4](docs/ask-the-tv-demo.mp4) (pair, cast, five chips, phone question) and [docs/household-demo.mp4](docs/household-demo.mp4) (stepping out / I'm back, a viewer asking in French, Translate → French, Back twice to exit)
 
