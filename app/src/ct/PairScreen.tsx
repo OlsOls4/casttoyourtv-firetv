@@ -20,12 +20,12 @@ export function PairScreen({ onCast }: Props) {
     let sub: { remove: () => void } | null = null;
     try {
       sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-        console.log(`[CTTV] lifecycle ${next} (pair screen)`);
+        console.info(`[CTTV] lifecycle ${next} (pair screen)`);
         setActive(next === 'active');
       });
-      console.log(`[CTTV] lifecycle listener on (${AppState.currentState})`);
+      console.info(`[CTTV] lifecycle listener on (${AppState.currentState})`);
     } catch (e) {
-      console.log(`[CTTV] AppState unavailable: ${String(e)}`);
+      console.info(`[CTTV] AppState unavailable: ${String(e)}`);
     }
     return () => sub?.remove();
   }, []);
@@ -54,7 +54,7 @@ export function PairScreen({ onCast }: Props) {
         setOnline('online');
         fails = 0;
         if (j && j.cast && j.cast.videoUrl) {
-          console.log(`[CTTV] cast received for ${code}: ${j.cast.videoUrl}`);
+          console.info(`[CTTV] cast received for ${code}: ${j.cast.videoUrl}`);
           onCast({ ...j.cast, source: 'phone', code });
         }
       } catch (e) {

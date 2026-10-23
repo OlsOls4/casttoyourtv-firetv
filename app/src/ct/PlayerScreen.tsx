@@ -56,7 +56,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
             return;
           }
         } catch (e) {
-          console.log(`[CTTV] subtitle fetch failed: ${String(e)}`);
+          console.info(`[CTTV] subtitle fetch failed: ${String(e)}`);
         }
       }
       if (alive && (!cast.subtitleUrl || /sintel/i.test(cast.subtitleUrl))) {
@@ -83,19 +83,19 @@ export function PlayerScreen({ cast, onExit }: Props) {
             if (cast.startAt) v.currentTime = cast.startAt;
             setDuration(Number(v.duration) || 0);
           } catch (e) {
-            console.log(`[CTTV] seek failed ${String(e)}`);
+            console.info(`[CTTV] seek failed ${String(e)}`);
           }
         });
         let firstPlay = true;
         v.addEventListener('playing', () => {
           if (firstPlay) {
             firstPlay = false;
-            console.log(`[CTTV] decoder playing at ${Number(v.currentTime || 0).toFixed(1)}s`);
+            console.info(`[CTTV] decoder playing at ${Number(v.currentTime || 0).toFixed(1)}s`);
           }
           setState(pausedRef.current ? 'paused' : 'playing');
         });
         v.addEventListener('error', () => {
-          console.log('[CTTV] video error -> subtitle clock');
+          console.info('[CTTV] video error -> subtitle clock');
           clockMode.current = true;
           setState('clock');
         });
@@ -108,15 +108,15 @@ export function PlayerScreen({ cast, onExit }: Props) {
             seekTo: (s: number) => seek(s - tRef.current),
             seekBy: (d: number) => seek(d),
           }));
-          console.log('[CTTV] media controls: setMediaControlFocus OK (KeplerMediaControlHandler registered)');
+          console.info('[CTTV] media controls: setMediaControlFocus OK (KeplerMediaControlHandler registered)');
         } catch (e) {
-          console.log(`[CTTV] media controls unavailable: ${String(e)}`);
+          console.info(`[CTTV] media controls unavailable: ${String(e)}`);
         }
         v.autoplay = true;
         v.src = cast.videoUrl;
-        console.log(`[CTTV] playing ${cast.videoUrl} from ${cast.startAt || 0}s`);
+        console.info(`[CTTV] playing ${cast.videoUrl} from ${cast.startAt || 0}s`);
       } catch (e) {
-        console.log(`[CTTV] player init failed: ${String(e)}`);
+        console.info(`[CTTV] player init failed: ${String(e)}`);
         clockMode.current = true;
         setState('clock');
       }
@@ -131,7 +131,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
       v?.clearSurfaceHandle(surfaceHandle);
       await v?.deinitialize();
     } catch (e) {
-      console.log(`[CTTV] deinit ${String(e)}`);
+      console.info(`[CTTV] deinit ${String(e)}`);
     }
   }, []);
 
@@ -152,7 +152,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
         tRef.current = vt;
       } else if (!pausedRef.current) {
         if (!clockMode.current && now - lastAdvance.current > 9000) {
-          console.log('[CTTV] decoder not advancing -> subtitle clock');
+          console.info('[CTTV] decoder not advancing -> subtitle clock');
           clockMode.current = true;
           setState('clock');
         }
@@ -197,7 +197,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     const now = Date.now();
     if (now - lastToggle.current < 500) return;
     lastToggle.current = now;
-    console.log(`[CTTV] play/pause via ${via} -> ${pausedRef.current ? 'play' : 'pause'}`);
+    console.info(`[CTTV] play/pause via ${via} -> ${pausedRef.current ? 'play' : 'pause'}`);
     (pausedRef.current ? resume : pause)();
   };
 
@@ -206,7 +206,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     askOpenRef.current = true;
     pause();
     setAskOpen(true);
-    console.log(`[CTTV] Ask the TV opened at ${fmtTime(tRef.current)}`);
+    console.info(`[CTTV] Ask the TV opened at ${fmtTime(tRef.current)}`);
   };
   const closeAsk = () => {
     askOpenRef.current = false;
@@ -231,20 +231,20 @@ export function PlayerScreen({ cast, onExit }: Props) {
     if (item.lang) setHouseLang(item.lang);
     const type = item.type || (item.text ? 'ask' : '');
     if (type === 'viewer') {
-      console.log(`[CTTV] viewer ${who} (${item.lang || 'en'})`);
+      console.info(`[CTTV] viewer ${who} (${item.lang || 'en'})`);
       showToast(`${who} is watching · answers in ${langName(item.lang)}`);
     } else if (type === 'away') {
       awaySince.current[key] = tRef.current;
-      console.log(`[CTTV] ${who} stepped out at ${fmtTime(tRef.current)}`);
+      console.info(`[CTTV] ${who} stepped out at ${fmtTime(tRef.current)}`);
       showToast(`${who} stepped out at ${fmtTime(tRef.current)} · I'll catch ${name ? name : 'them'} up`, 8000);
     } else if (type === 'back') {
       const since = awaySince.current[key] ?? Math.max(0, tRef.current - 90);
       delete awaySince.current[key];
-      console.log(`[CTTV] ${who} is back: recap ${fmtTime(since)} -> ${fmtTime(tRef.current)}`);
+      console.info(`[CTTV] ${who} is back: recap ${fmtTime(since)} -> ${fmtTime(tRef.current)}`);
       openAsk();
       setPhoneQ({ id: item.id, kind: 'missed', name, lang: item.lang, since });
     } else if (item.text) {
-      console.log(`[CTTV] phone question from ${who} [${item.lang || 'en'}] (${item.via}): ${item.text}`);
+      console.info(`[CTTV] phone question from ${who} [${item.lang || 'en'}] (${item.via}): ${item.text}`);
       openAsk();
       setPhoneQ({ id: item.id, kind: 'ask', text: item.text, via: item.via, name, lang: item.lang });
     }
@@ -272,13 +272,13 @@ export function PlayerScreen({ cast, onExit }: Props) {
     try {
       sub = AppState.addEventListener('change', (next: AppStateStatus) => {
         const active = next === 'active';
-        console.log(`[CTTV] lifecycle ${next}${active ? ' -> polling resumed (still paused)' : ' -> paused, polling stopped'}`);
+        console.info(`[CTTV] lifecycle ${next}${active ? ' -> polling resumed (still paused)' : ' -> paused, polling stopped'}`);
         if (!active) pause();
         setAppActive(active);
       });
-      console.log(`[CTTV] lifecycle listener on (${AppState.currentState})`);
+      console.info(`[CTTV] lifecycle listener on (${AppState.currentState})`);
     } catch (e) {
-      console.log(`[CTTV] AppState unavailable: ${String(e)}`);
+      console.info(`[CTTV] AppState unavailable: ${String(e)}`);
     }
     return () => sub?.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,7 +299,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
       if (askOpen) {
         closeAsk();
       } else if (Date.now() - backArmed.current < 4000) {
-        console.log('[CTTV] back twice -> exit player');
+        console.info('[CTTV] back twice -> exit player');
         onExit();
       } else {
         // A stray Back shouldn't lose the film: ask for a second press.

@@ -13,7 +13,7 @@ export type Transport = {
 
 type TimeValue = { seconds?: number; nanoseconds?: number } | undefined;
 const secs = (v: TimeValue) => Number(v?.seconds || 0) + Number(v?.nanoseconds || 0) / 1e9;
-const log = (what: string) => console.log(`[CTTV] media control: ${what}`);
+const log = (what: string) => console.info(`[CTTV] media control: ${what}`);
 
 export class CttvMediaControls extends KeplerMediaControlHandler {
   private tr: Transport;

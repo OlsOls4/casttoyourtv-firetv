@@ -97,7 +97,8 @@ record.sh stop 2>&1 | tee "$OUT/logs/record-stop.log"
 # Snapshot the device log between the two recordings (film paused so the household demo
 # starts at the same point in the dialogue).
 p playpause
-timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" -p info > "$OUT/logs/device-log-mid.txt" 2>&1 || true
+timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" -a com.amazon.keplerscript > "$OUT/logs/device-log-mid.txt" 2>&1 || true
+timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" -p info >> "$OUT/logs/device-log-mid.txt" 2>&1 || true
 echo "mid log: $(wc -l < "$OUT/logs/device-log-mid.txt") lines, $(grep -ac CTTV "$OUT/logs/device-log-mid.txt") CTTV"
 
 # ---------------- household features, driven from the phone page (second recording) ----------------
@@ -157,19 +158,24 @@ echo "demo length $((SECONDS-T0))s"
 # loggingctl needs at least one option: a bare `loggingctl log` (or a quoted pipeline) only prints its help.
 # `loggingctl log -o …` only returns the newest ~80 lines, so ask for our app's lines specifically.
 : > "$OUT/logs/device-log.txt"
-for args in "-v $PACKAGE_ID -p info" "-v $PACKAGE_ID" "-t $PACKAGE_ID" "-v $PACKAGE_ID -S $LOG_SINCE" "-S $LOG_SINCE -p info"; do
+for args in "-v $PACKAGE_ID -a com.amazon.keplerscript" "-a com.amazon.keplerscript" "-v $PACKAGE_ID -p info"; do
   echo "=== loggingctl log $args" >> "$OUT/logs/device-log.txt"
   timeout 45 vega exec vda shell loggingctl log $args >> "$OUT/logs/device-log.txt" 2>&1 || true
 done
 cat "$OUT/logs/device-log-mid.txt" "$OUT/logs/device-log.txt" 2>/dev/null | grep -a "CTTV" | awk '!seen[$0]++' > "$OUT/logs/app-log.txt" || true
 echo "::group::app log ([CTTV])"; cat "$OUT/logs/app-log.txt"; echo "::endgroup::"
-# Real playback check: the subtitle clock must not be hiding a decoder regression.
-if ! grep -qa "\[CTTV\] decoder playing" "$OUT/logs/app-log.txt"; then
-  if [[ -s "$OUT/logs/app-log.txt" ]]; then echo "::warning::no '[CTTV] decoder playing' log line: video may not have decoded"; else echo "::warning::no [CTTV] log lines captured from the device"; fi
-  echo "PLAYBACK: not confirmed" > "$OUT/logs/playback-check.txt"
+# Real playback check: the Vega media pipeline must be running inside our app process (so the
+# subtitle clock can't hide a decoder regression). Our own [CTTV] lines are a bonus when the log keeps them.
+cat "$OUT/logs/device-log-mid.txt" "$OUT/logs/device-log.txt" 2>/dev/null | grep -a "$PACKAGE_ID\[" \
+  | grep -aE "MEDIA_PLAYER|W3CMEDIA|KeplerScript-JavaScript|CTTV" | grep -av "too late\|too slow" > "$OUT/logs/app-media-log.txt" || true
+if grep -aqE "Pipeline is buffering|Playing state|decoder playing" "$OUT/logs/app-media-log.txt"; then
+  echo "PLAYBACK: confirmed by the Vega media pipeline in $PACKAGE_ID" | tee "$OUT/logs/playback-check.txt"
+  grep -aE "Pipeline is buffering|Playing state|decoder playing" "$OUT/logs/app-media-log.txt" | head -3
 else
-  echo "PLAYBACK: confirmed ($(grep -a -m1 'decoder playing' "$OUT/logs/app-log.txt"))" | tee "$OUT/logs/playback-check.txt"
+  echo "::warning::no media-pipeline log lines from $PACKAGE_ID: playback not confirmed"
+  echo "PLAYBACK: not confirmed" > "$OUT/logs/playback-check.txt"
 fi
+grep -qa "\[CTTV\] decoder playing" "$OUT/logs/app-log.txt" || echo "::warning::no '[CTTV] decoder playing' line in the device log (JS logs are often rotated out of loggingctl's window)"
 grep -qa "decoder not advancing" "$OUT/logs/app-log.txt" && echo "::warning::decoder stalled at some point (subtitle clock engaged)"
 
 if [[ -s "$OUT/demo-console.webm" ]]; then

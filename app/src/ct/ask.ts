@@ -89,10 +89,10 @@ export async function askTheTv(mode: AskMode, cues: Cue[], t: number, title: str
       signal: ctl.signal,
     });
     const j = await r.json();
-    console.log(`[CTTV] ask ${mode}${opts.replyLang && opts.replyLang !== 'en' ? ' [' + opts.replyLang + ']' : ''} -> ${j.source} ${j.model || ''} ${Date.now() - t0}ms, ${used} cues <= ${fmtTime(t)}`);
+    console.info(`[CTTV] ask ${mode}${opts.replyLang && opts.replyLang !== 'en' ? ' [' + opts.replyLang + ']' : ''} -> ${j.source} ${j.model || ''} ${Date.now() - t0}ms, ${used} cues <= ${fmtTime(t)}`);
     return { answer: tidy(j.answer), source: j.source || 'server', model: j.model, ms: Date.now() - t0, cuesUsed: used };
   } catch (e) {
-    console.log(`[CTTV] ask ${mode} offline fallback: ${String(e)}`);
+    console.info(`[CTTV] ask ${mode} offline fallback: ${String(e)}`);
     return { answer: offlineAnswer(mode, cues, t, question, since, name), source: 'offline', ms: Date.now() - t0, cuesUsed: used };
   } finally {
     clearTimeout(timer);
