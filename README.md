@@ -147,7 +147,7 @@ The run uploads step screenshots, two 1080p MP4s and the `.vpkg` as the `firetv-
   * `public/s/`: the web sender page that the QR code opens (`/s/?code=XXXXXX`). It casts, remembers each viewer's name and language, asks free questions by voice (Web Speech API, in the viewer's language) or by typing, and has *Stepping out* / *I'm back* buttons.
   * `public/media/`: the demo clip, its subtitles and a poster image.
 * **CI** (`.github/workflows/firetv.yml`, `ci/scripts/`):
-  * Runs the server tests (`node --test`), then uses the composite action [`OlsOls4/vega-vvd-ci@v1`](https://github.com/OlsOls4/vega-vvd-ci). It installs the Vega SDK, enables KVM and boots the VVD headlessly with non-black captures.
+  * Runs the server tests (`node --test`), then uses the composite action [`OlsOls4/vega-vvd-ci@v1.0.0`](https://github.com/OlsOls4/vega-vvd-ci). It installs the Vega SDK, enables KVM and boots the VVD headlessly with non-black captures.
   * `prepare-app.sh` writes the build-time config (a fixed pairing code per run, so CI can cast to it), runs the unit tests (a failure fails the build) and builds `build:release`.
   * `demo.sh` drives the app with `inputd-cli button_press`. It casts through the real web sender page, drives the household features from the same page in headless Chrome, captures screenshots, records two clips with the emulator console's `screenrecord`, and checks the device log for the media pipeline running in our app.
 
