@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, AppStateStatus, Image, Text, TouchableOpacity, View } from 'react-native';
 import { BackHandler, HWEvent, useTVEventHandler } from '@amazon-devices/react-native-kepler';
 import { KeplerVideoSurfaceView, VideoPlayer } from '@amazon-devices/react-native-w3cmedia';
 import { AskPanel, PANEL_W, PhoneQuestion } from './AskPanel';
-import { API_BASE, Cast, COLORS, fmtTime } from './config';
+import { API_BASE, Cast, COLORS, fmtTime, langName } from './config';
 import { SINTEL_SRT } from './sintelSubs';
 import { activeCue, Cue, parseSubtitles } from './subtitles';
 import { useS } from './ui';
@@ -23,6 +23,14 @@ export function PlayerScreen({ cast, onExit }: Props) {
   const [hud, setHud] = useState(true);
   const [phoneQ, setPhoneQ] = useState<PhoneQuestion | null>(null);
   const askOpenRef = useRef(false);
+  // "Who's asking": the language of the last viewer who cast or asked (drives the Translate chip).
+  const [houseLang, setHouseLang] = useState(cast.viewer?.lang || 'en');
+  // "Stepping out": when each viewer left, so "I'm back" can recap exactly the stretch they missed.
+  const awaySince = useRef<Record<string, number>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backArmed = useRef(0);
+  const [appActive, setAppActive] = useState(AppState.currentState !== 'background');
 
   const tRef = useRef(cast.startAt || 0);
   const pausedRef = useRef(false);
@@ -75,7 +83,14 @@ export function PlayerScreen({ cast, onExit }: Props) {
             console.log(`[CTTV] seek failed ${String(e)}`);
           }
         });
-        v.addEventListener('playing', () => setState(pausedRef.current ? 'paused' : 'playing'));
+        let firstPlay = true;
+        v.addEventListener('playing', () => {
+          if (firstPlay) {
+            firstPlay = false;
+            console.log(`[CTTV] decoder playing at ${Number(v.currentTime || 0).toFixed(1)}s`);
+          }
+          setState(pausedRef.current ? 'paused' : 'playing');
+        });
         v.addEventListener('error', () => {
           console.log('[CTTV] video error -> subtitle clock');
           clockMode.current = true;
@@ -155,6 +170,12 @@ export function PlayerScreen({ cast, onExit }: Props) {
     if (!clockMode.current) setState('playing');
   };
 
+  const showToast = (msg: string, ms = 4500) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  };
+
   const openAsk = () => {
     if (askOpenRef.current) return;
     askOpenRef.current = true;
@@ -177,19 +198,40 @@ export function PlayerScreen({ cast, onExit }: Props) {
     setTimeout(() => setHud(false), 3000);
   };
 
-  // Questions asked from the phone (voice or typed) while watching: pause, open the panel, answer.
+  // Phone -> TV while watching (through the relay): free questions, "Stepping out", "I'm back", who's watching.
+  const onPhoneItem = (item: any) => {
+    const name = String(item.name || '').trim();
+    const who = name || 'Someone';
+    const key = name.toLowerCase() || '_';
+    if (item.lang) setHouseLang(item.lang);
+    const type = item.type || (item.text ? 'ask' : '');
+    if (type === 'viewer') {
+      console.log(`[CTTV] viewer ${who} (${item.lang || 'en'})`);
+      showToast(`${who} is watching · answers in ${langName(item.lang)}`);
+    } else if (type === 'away') {
+      awaySince.current[key] = tRef.current;
+      console.log(`[CTTV] ${who} stepped out at ${fmtTime(tRef.current)}`);
+      showToast(`${who} stepped out at ${fmtTime(tRef.current)} · I'll catch ${name ? name : 'them'} up`, 8000);
+    } else if (type === 'back') {
+      const since = awaySince.current[key] ?? Math.max(0, tRef.current - 90);
+      delete awaySince.current[key];
+      console.log(`[CTTV] ${who} is back: recap ${fmtTime(since)} -> ${fmtTime(tRef.current)}`);
+      openAsk();
+      setPhoneQ({ id: item.id, kind: 'missed', name, lang: item.lang, since });
+    } else if (item.text) {
+      console.log(`[CTTV] phone question from ${who} [${item.lang || 'en'}] (${item.via}): ${item.text}`);
+      openAsk();
+      setPhoneQ({ id: item.id, kind: 'ask', text: item.text, via: item.via, name, lang: item.lang });
+    }
+  };
   useEffect(() => {
-    if (!cast.code) return;
+    if (!cast.code || !appActive) return; // no polling while the app is in the background
     let alive = true;
     const id = setInterval(async () => {
       try {
         const r = await fetch(`${API_BASE}/api/relay?code=${cast.code}&q=1`);
         const j = await r.json();
-        if (alive && j && j.question && j.question.text) {
-          console.log(`[CTTV] phone question (${j.question.via}): ${j.question.text}`);
-          openAsk();
-          setPhoneQ(j.question);
-        }
+        if (alive && j && j.question) onPhoneItem(j.question);
       } catch (e) {}
     }, 2000);
     return () => {
@@ -197,7 +239,25 @@ export function PlayerScreen({ cast, onExit }: Props) {
       clearInterval(id);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cast.code]);
+  }, [cast.code, appActive]);
+
+  // App lifecycle: pause and stop polling in the background; on return, poll again but stay paused.
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+    try {
+      sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+        const active = next === 'active';
+        console.log(`[CTTV] lifecycle ${next}${active ? ' -> polling resumed (still paused)' : ' -> paused, polling stopped'}`);
+        if (!active) pause();
+        setAppActive(active);
+      });
+      console.log(`[CTTV] lifecycle listener on (${AppState.currentState})`);
+    } catch (e) {
+      console.log(`[CTTV] AppState unavailable: ${String(e)}`);
+    }
+    return () => sub?.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useTVEventHandler((evt: HWEvent) => {
     if (!evt || evt.eventKeyAction !== 0) return;
@@ -211,8 +271,16 @@ export function PlayerScreen({ cast, onExit }: Props) {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (askOpen) closeAsk();
-      else onExit();
+      if (askOpen) {
+        closeAsk();
+      } else if (Date.now() - backArmed.current < 4000) {
+        console.log('[CTTV] back twice -> exit player');
+        onExit();
+      } else {
+        // A stray Back shouldn't lose the film: ask for a second press.
+        backArmed.current = Date.now();
+        showToast('Press Back again to exit', 4000);
+      }
       return true;
     });
     return () => sub.remove();
@@ -289,7 +357,13 @@ export function PlayerScreen({ cast, onExit }: Props) {
         </View>
       ) : null}
 
-      {askOpen ? <AskPanel cues={cues} t={t} title={title} phoneQuestion={phoneQ} /> : null}
+      {toast ? (
+        <View style={{ position: 'absolute', top: S(56), right: rightInset + S(80), maxWidth: S(820), backgroundColor: 'rgba(20,26,43,0.94)', borderRadius: S(20), borderWidth: S(2), borderColor: 'rgba(255,181,71,0.45)', paddingHorizontal: S(28), paddingVertical: S(16) }}>
+          <Text style={{ color: COLORS.ink, fontSize: S(28), fontWeight: '700' }}>{toast}</Text>
+        </View>
+      ) : null}
+
+      {askOpen ? <AskPanel cues={cues} t={t} title={title} phoneQuestion={phoneQ} householdLang={houseLang} /> : null}
     </View>
   );
 }

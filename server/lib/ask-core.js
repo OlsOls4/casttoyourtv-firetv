@@ -9,9 +9,14 @@ const MODES = {
   translate: 'Translate line',
   who: "Who's speaking?",
   ask: 'Your question',
+  missed: 'While you were away',
 };
 
-const LANG_NAMES = { es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', ja: 'Japanese', pl: 'Polish' };
+const LANG_NAMES = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', pt: 'Portuguese', ja: 'Japanese', pl: 'Polish', hi: 'Hindi' };
+
+function cleanName(n) {
+  return String(n || '').replace(/[^\p{L}\p{N} .'-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+}
 
 function fmt(t) {
   t = Math.max(0, Math.floor(t || 0));
@@ -33,6 +38,11 @@ function spoilerSafe(cues, t) {
 }
 
 function windowFor(mode, cues, t, since) {
+  if (mode === 'missed') {
+    // Exactly the stretch the viewer was away for: cues that started between `since` and `t`.
+    const from = Number.isFinite(since) ? Math.min(since, t) : t - 90;
+    return cues.filter(c => c.s >= from && c.s <= t);
+  }
   if (mode === 'miss') {
     const from = Number.isFinite(since) && since < t ? since : t - 90;
     const w = cues.filter(c => c.s >= from);
@@ -48,9 +58,11 @@ function cleanQuestion(q) {
   return clean(q).replace(/["“”]/g, "'").slice(0, 200);
 }
 
-function buildPrompt({ mode, title, t, cues, since, lang, question }) {
+function buildPrompt({ mode, title, t, cues, since, lang, question, name, replyLang }) {
   const safe = spoilerSafe(cues, t);
   const win = windowFor(mode, safe, t, since);
+  const who = cleanName(name);
+  const from = Number.isFinite(since) ? Math.min(since, t) : t - 90;
   const transcript = safe.slice(-80).map(c => `[${fmt(c.s)}] ${c.text}`).join('\n');
   const focus = win.map(c => `[${fmt(c.s)}] ${c.text}`).join('\n');
   const langName = LANG_NAMES[lang] || 'Spanish';
@@ -59,24 +71,32 @@ function buildPrompt({ mode, title, t, cues, since, lang, question }) {
     recap: `Give a 3-bullet recap (each bullet under 12 words) of the last five minutes, based on these lines:\n${focus}`,
     explain: `Explain the meaning and subtext of the latest line in 2 short sentences, using earlier dialogue for context:\n${focus}`,
     translate: `Translate the latest line into ${langName}. Reply with the translation on the first line, then one short note on nuance.\n${focus}`,
-    ask: `The viewer asked, by voice from their phone: "${cleanQuestion(question)}". Answer in 1-3 short sentences using only the dialogue so far. If the dialogue doesn't answer it yet, say so honestly and don't guess what happens next.`,
+    ask: `${who ? `The viewer ${who}` : 'The viewer'} asked, from their phone: "${cleanQuestion(question)}". Answer ${who ? who : 'them'} directly in 1-3 short sentences using only the dialogue so far. If the dialogue doesn't answer it yet, say so honestly and don't guess what happens next.`,
+    missed: `${who || 'A viewer'} stepped out at ${fmt(from)} and is back at ${fmt(t)}. Welcome them back and, in 2-3 short sentences, tell them what happened in exactly the lines they missed (below). Do not repeat anything from before ${fmt(from)} and never go past ${fmt(t)}.\n${focus || '(no dialogue while they were away)'}`,
     who: `Say who is most likely speaking the latest line and to whom, in 1-2 sentences, citing the clue in the dialogue. If it is unclear, say so.\n${focus}`,
   };
   const system =
     'You are "Ask the TV", a helpful companion on a Fire TV. You answer questions about what the viewer is watching. ' +
     'STRICT RULES: use ONLY the subtitle lines provided (they end at the viewer\'s current position). ' +
     'Never reveal, hint at or guess anything that happens later, even if you recognise the film. ' +
-    'Be concise and warm; plain text only, no markdown headings. The answer is read from a sofa, 3 metres away: keep it under 45 words.';
+    'Be concise and warm; plain text only, no markdown headings. The answer is read from a sofa, 3 metres away: keep it under 45 words.' +
+    (replyLang && replyLang !== 'en' && LANG_NAMES[replyLang] && mode !== 'translate' ? ` Write the whole answer in ${LANG_NAMES[replyLang]}.` : '');
   const user =
     `Title: ${title || 'Unknown'}\nViewer position: ${fmt(t)}\n\nDialogue so far (subtitles):\n${transcript || '(no dialogue yet)'}\n\nTask: ${tasks[mode] || tasks.miss}`;
   return { system, user, used: safe.length, window: win };
 }
 
-function offlineAnswer({ mode, title, t, cues, since, lang, question }) {
+function offlineAnswer({ mode, title, t, cues, since, lang, question, name }) {
   const safe = spoilerSafe(cues, t);
   const win = windowFor(mode, safe, t, since);
   const last = safe[safe.length - 1];
   const q = c => `“${c.text}”`;
+  if (mode === 'missed') {
+    const who = cleanName(name);
+    const from = Number.isFinite(since) ? Math.min(since, t) : t - 90;
+    if (!win.length) return `Welcome back${who ? ', ' + who : ''}! Nobody spoke between ${fmt(from)} and ${fmt(t)}, so you haven't missed any dialogue.`;
+    return `Welcome back${who ? ', ' + who : ''}! While you were away (${fmt(from)} to ${fmt(t)}): ` + win.slice(-3).map(q).join(' then ') + '.';
+  }
   if (!safe.length) return 'No one has spoken yet, so there is nothing to miss. Enjoy the opening!';
   switch (mode) {
     case 'miss':
@@ -153,10 +173,14 @@ async function answer(body) {
   const t = Number(body.t) || 0;
   const question = cleanQuestion(body.question);
   if (mode === 'ask' && !question) return { mode, label: MODES.ask, answer: 'Ask me something about what you have watched so far.', source: 'none', cuesUsed: 0 };
-  const input = { mode, title: body.title, t, cues: body.cues, since: Number(body.since), lang: body.lang, question };
+  const since = body.since === undefined || body.since === null || body.since === '' ? NaN : Number(body.since);
+  const replyLang = LANG_NAMES[body.replyLang] ? body.replyLang : 'en';
+  const input = { mode, title: body.title, t, cues: body.cues, since, lang: body.lang, question, name: body.name, replyLang };
   const { system, user, used, window } = buildPrompt(input);
   const base = { mode, label: MODES[mode], question: question || undefined, position: fmt(t), cuesUsed: used, window: window.length };
   if (body.offline) return { ...base, answer: offlineAnswer(input), source: 'offline' };
+  // Nothing was said while they were away: answer deterministically, no model call needed.
+  if (mode === 'missed' && !window.length) return { ...base, answer: offlineAnswer(input), source: 'rule' };
   for (const [name, fn] of [['groq', callGroq], ['gemini', callGemini]]) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), name === 'gemini' ? 9000 : 6000);
@@ -172,4 +196,4 @@ async function answer(body) {
   return { ...base, answer: offlineAnswer(input), source: 'offline' };
 }
 
-module.exports = { answer, buildPrompt, offlineAnswer, spoilerSafe, MODES, fmt };
+module.exports = { answer, buildPrompt, offlineAnswer, spoilerSafe, windowFor, cleanName, MODES, LANG_NAMES, fmt };

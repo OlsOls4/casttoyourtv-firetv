@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Text, View } from 'react-native';
+import { Animated, AppState, AppStateStatus, Text, View } from 'react-native';
 import { API_BASE, Cast, COLORS, DEMO_CAST, newPairCode, SENDER_URL } from './config';
 import { BUILD } from './buildConfig';
 import { QRCode } from './QRCode';
@@ -13,6 +13,22 @@ export function PairScreen({ onCast }: Props) {
   const [online, setOnline] = useState<'checking' | 'online' | 'offline'>('checking');
   const pulse = useRef(new Animated.Value(0.35)).current;
   const url = `${SENDER_URL}?code=${code}`;
+  const [active, setActive] = useState(AppState.currentState !== 'background');
+
+  // Lifecycle: stop polling the relay while the app is in the background.
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+    try {
+      sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+        console.log(`[CTTV] lifecycle ${next} (pair screen)`);
+        setActive(next === 'active');
+      });
+      console.log(`[CTTV] lifecycle listener on (${AppState.currentState})`);
+    } catch (e) {
+      console.log(`[CTTV] AppState unavailable: ${String(e)}`);
+    }
+    return () => sub?.remove();
+  }, []);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -27,6 +43,7 @@ export function PairScreen({ onCast }: Props) {
 
   // Poll the relay for a cast sent from the phone / web sender.
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     let fails = 0;
     const tick = async () => {
@@ -51,7 +68,7 @@ export function PairScreen({ onCast }: Props) {
       alive = false;
       clearInterval(id);
     };
-  }, [code, onCast]);
+  }, [code, onCast, active]);
 
   const statusText =
     online === 'online' ? 'Waiting for your phone…' : online === 'offline' ? 'No internet: try the demo film' : 'Connecting…';
@@ -112,14 +129,12 @@ export function PairScreen({ onCast }: Props) {
         </View>
       </View>
 
-      {/* Bottom strip: the hook */}
+      {/* Bottom strip: the hook, as plain text (not pills) so nothing here looks focusable */}
       <View style={{ position: 'absolute', left: S(120), right: S(120), bottom: S(64), flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={{ color: COLORS.accent, fontSize: S(26), fontWeight: '800', marginRight: S(22) }}>✦ ASK THE TV</Text>
-        {['What did I miss?', 'Recap last 5 min', 'Explain this line', 'Translate line', "Who's speaking?"].map(t => (
-          <View key={t} style={{ paddingHorizontal: S(20), paddingVertical: S(10), borderRadius: S(30), backgroundColor: 'rgba(255,255,255,0.06)', marginRight: S(12) }}>
-            <Text style={{ color: COLORS.mute, fontSize: S(22) }}>{t}</Text>
-          </View>
-        ))}
+        <Text style={{ color: COLORS.accent, fontSize: S(24), fontWeight: '800', marginRight: S(18) }}>✦</Text>
+        <Text style={{ color: COLORS.mute, fontSize: S(24) }}>
+          While watching, press <Text style={{ color: COLORS.ink, fontWeight: '800' }}>SELECT</Text> to ask: what did I miss? · recap · explain a line · translate · who's speaking? · or ask out loud from your phone
+        </Text>
       </View>
     </View>
   );

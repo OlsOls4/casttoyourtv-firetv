@@ -24,7 +24,7 @@ echo "::group::npm install"
 npm install --no-audit --no-fund
 echo "::endgroup::"
 echo "::group::unit tests"
-npx jest --ci 2>&1 | tee "$OUT/logs/unit-tests.log" || echo "::warning::unit tests failed (see logs/unit-tests.log)"
+npx jest --ci 2>&1 | tee "$OUT/logs/unit-tests.log"   # pipefail: a failing unit test fails the build
 echo "::endgroup::"
 echo "::group::build:release"
 npm run build:release
