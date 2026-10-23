@@ -88,7 +88,7 @@ if ! grep -q 'Asked\|Queued' "$OUT/logs/phone-ask-dom.html" 2>/dev/null; then
   curl -s -m 15 -X POST "$API/api/relay" -H 'content-type: application/json' \
     -d '{"code":"'"$PAIR_CODE"'","question":"Why is she looking for a dragon?","via":"voice"}' | tee "$OUT/logs/phone-ask-curl.json"
 fi
-sleep 7; shot ask-from-phone
+sleep 8; shot ask-from-phone
 p back; sleep 3; shot resumed
 echo "::endgroup::"
 
@@ -96,7 +96,7 @@ record.sh stop 2>&1 | tee "$OUT/logs/record-stop.log"
 # Snapshot the device log between the two recordings (film paused so the household demo
 # starts at the same point in the dialogue).
 p playpause
-timeout 45 vega exec vda shell loggingctl log > "$OUT/logs/device-log-mid.txt" 2>&1 || true
+timeout 45 vega exec vda shell loggingctl log -o short_precise > "$OUT/logs/device-log-mid.txt" 2>&1 || true
 echo "mid log: $(wc -l < "$OUT/logs/device-log-mid.txt") lines, $(grep -ac CTTV "$OUT/logs/device-log-mid.txt") CTTV"
 
 # ---------------- household features, driven from the phone page (second recording) ----------------
@@ -123,12 +123,12 @@ phone "name=Sam&lang=en&event=away&autoevent=1" sam-away 'Got it' '{"code":"'"$P
 sleep 2; shot hh-sam-stepped-out
 sleep 14; shot hh-while-sam-away
 phone "name=Sam&lang=en&event=back&autoevent=1" sam-back 'Welcome back|Queued' '{"code":"'"$PAIR_CODE"'","event":"back","name":"Sam","lang":"en"}'
-sleep 6; shot hh-sam-welcome-back
+sleep 8; shot hh-sam-welcome-back
 p back; sleep 3
 phone "name=Mia&lang=fr&via=voice&ask=Pourquoi%20cherche-t-elle%20un%20dragon%20%3F&autoask=1" mia-ask 'Asked|Queued' '{"code":"'"$PAIR_CODE"'","question":"Pourquoi cherche-t-elle un dragon ?","via":"voice","name":"Mia","lang":"fr"}'
-sleep 6; shot hh-mia-asked-in-french
+sleep 8; shot hh-mia-asked-in-french
 p down; sleep 1.5; shot hh-focus-moved-clears-answer
-p down down; sleep 0.5; p select; sleep 5; shot hh-translate-to-french
+p down down; sleep 0.5; p select; sleep 6; shot hh-translate-to-french
 p back; sleep 2.5; shot hh-resumed
 p back; sleep 0.3; shot hh-back-once-toast
 p back; sleep 3; shot hh-back-to-pair
@@ -151,8 +151,10 @@ fi
   --virtual-time-budget=3000 --screenshot="$OUT/shots/99-phone-ask.png" "$QURL" >/dev/null 2>&1 || true
 sleep 4
 echo "demo length $((SECONDS-T0))s"
-# loggingctl gets its arguments directly (a quoted pipeline reaches it as bogus args and prints its help).
-timeout 60 vega exec vda shell loggingctl log > "$OUT/logs/device-log.txt" 2>&1 || true
+# loggingctl needs at least one option: a bare `loggingctl log` (or a quoted pipeline) only prints its help.
+timeout 60 vega exec vda shell loggingctl log -o short_precise > "$OUT/logs/device-log.txt" 2>&1 || true
+# fallback form in case the full dump is refused
+grep -aq CTTV "$OUT/logs/device-log.txt" || timeout 45 vega exec vda shell loggingctl log -v "$PACKAGE_ID" >> "$OUT/logs/device-log.txt" 2>&1 || true
 cat "$OUT/logs/device-log-mid.txt" "$OUT/logs/device-log.txt" 2>/dev/null | grep -a "CTTV" | awk '!seen[$0]++' > "$OUT/logs/app-log.txt" || true
 echo "::group::app log ([CTTV])"; cat "$OUT/logs/app-log.txt"; echo "::endgroup::"
 # Real playback check: the subtitle clock must not be hiding a decoder regression.

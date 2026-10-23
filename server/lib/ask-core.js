@@ -1,4 +1,4 @@
-// "Ask the TV" core: spoiler-free prompt building, LLM calls (Groq -> Gemini) and a
+// "Ask the TV" core: spoiler-free prompt building, LLM calls (Gemini -> Groq gpt-oss) and a
 // deterministic offline fallback. The model only ever sees subtitle cues whose start
 // time is <= the viewer's current position, enforced here on the server.
 
@@ -126,46 +126,62 @@ async function callGroq(system, user, signal) {
     signal,
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
       temperature: 0.3,
-      max_tokens: 220,
+      max_tokens: 700,
+      reasoning_effort: 'low',
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
     }),
   });
-  if (!r.ok) throw new Error(`groq ${r.status}`);
+  if (!r.ok) throw new Error(`groq ${r.status} ${(await r.text()).slice(0, 140).replace(/\s+/g, ' ')}`);
   const j = await r.json();
   const text = j.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error('groq empty');
   return { text, model: j.model || 'groq' };
 }
 
-async function callGemini(system, user, signal) {
+// Tries several Gemini models, each with its own short timeout, and moves on when one is
+// missing, rate-limited, overloaded (429/5xx) or slow, so a busy model never stalls the TV.
+async function callGemini(system, user, signal, budgetMs = 9000) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('no GEMINI_API_KEY');
-  const models = (process.env.GEMINI_MODEL || 'gemini-flash-lite-latest,gemini-3.1-flash-lite,gemini-flash-latest').split(',');
-  let last = 'gemini: no model';
+  const models = (process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite,gemini-flash-lite-latest,gemini-flash-latest').split(',').map(m => m.trim()).filter(Boolean);
+  const t0 = Date.now();
+  const errs = [];
   for (const model of models) {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      signal,
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 400},
-      }),
-    });
-    if (!r.ok) {
-      last = `gemini ${model} ${r.status} ${(await r.text()).slice(0, 160).replace(/\s+/g, ' ')}`;
-      if (r.status === 404 || r.status === 400) continue;
-      throw new Error(last);
+    const left = budgetMs - (Date.now() - t0);
+    if (left < 800 || signal?.aborted) break;
+    const ctl = new AbortController();
+    const onAbort = () => ctl.abort();
+    signal?.addEventListener?.('abort', onAbort);
+    const timer = setTimeout(() => ctl.abort(), Math.min(3500, left));
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        signal: ctl.signal,
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: user }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 400 },
+        }),
+      });
+      if (!r.ok) {
+        errs.push(`${model} ${r.status}`);
+        continue; // 400/404 (unknown model), 429 (rate limit), 5xx (overloaded): try the next model
+      }
+      const j = await r.json();
+      const text = j.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+      if (!text) { errs.push(`${model} empty`); continue; }
+      return { text, model };
+    } catch (e) {
+      errs.push(`${model} ${e.name === 'AbortError' ? 'timeout' : String(e.message || e)}`);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
     }
-    const j = await r.json();
-    const text = j.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
-    if (!text) { last = `gemini ${model} empty`; continue; }
-    return { text, model };
   }
-  throw new Error(last);
+  throw new Error('gemini: ' + (errs.join('; ') || 'no model'));
 }
 
 async function answer(body) {
@@ -181,11 +197,12 @@ async function answer(body) {
   if (body.offline) return { ...base, answer: offlineAnswer(input), source: 'offline' };
   // Nothing was said while they were away: answer deterministically, no model call needed.
   if (mode === 'missed' && !window.length) return { ...base, answer: offlineAnswer(input), source: 'rule' };
-  for (const [name, fn] of [['groq', callGroq], ['gemini', callGemini]]) {
+  // Gemini first (best answers when healthy) on a short budget, then Groq, then the offline answer.
+  for (const [name, fn, ms] of [['gemini', callGemini, 3500], ['groq', callGroq, 6000]]) {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), name === 'gemini' ? 9000 : 6000);
+    const timer = setTimeout(() => ctl.abort(), ms + 200);
     try {
-      const out = await fn(system, user, ctl.signal);
+      const out = await fn(system, user, ctl.signal, ms);
       return { ...base, answer: out.text, source: name, model: out.model };
     } catch (e) {
       base[`${name}Error`] = String(e.message || e);

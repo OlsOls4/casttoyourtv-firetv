@@ -78,7 +78,7 @@ export function AskPanel({ cues, t, title, phoneQuestion, householdLang }: Props
   const subLine = (m: AskMode, pq?: PhoneQuestion) =>
     m === 'missed' && pq ? `You missed ${fmtTime(pq.since ?? t)} → ${fmtTime(t)}` : pq?.text ? `“${pq.text}”` : '';
   const sourceLabel = (r: AskResult) =>
-    r.source === 'gemini' ? 'Gemini' : r.source === 'groq' ? 'Groq · Llama' : r.source === 'offline' ? 'Offline mode' : r.source === 'rule' ? 'No dialogue' : r.source;
+    r.source === 'gemini' ? 'Gemini' : r.source === 'groq' ? 'Groq · gpt-oss' : r.source === 'offline' ? 'Offline mode' : r.source === 'rule' ? 'No dialogue' : r.source;
   const footer = (r: Shown) =>
     r.mode === 'missed' && r.pq
       ? `${sourceLabel(r)} · ${(r.ms / 1000).toFixed(1)}s · only the ${r.cuesUsed} line${r.cuesUsed === 1 ? '' : 's'} between ${fmtTime(r.pq.since ?? t)} and ${fmtTime(t)}`
