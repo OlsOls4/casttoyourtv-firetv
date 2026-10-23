@@ -35,6 +35,10 @@
   button.back { background:linear-gradient(90deg,#6ee7a8,#3cc8c8); color:#06231a }
   .who { display:flex; gap:10px } .who > div:first-child { flex:1.3 } .who > div:last-child { flex:1 }
   .hidden { display:none }
+  .answer { margin-top:12px; padding:14px; border-radius:14px; background:#0e1322; border:1px solid #2c3554; white-space:pre-wrap; line-height:1.45 }
+  .answer small { display:block; color:var(--mute); margin-top:8px; font-size:12px }
+  .pos { display:flex; gap:8px; align-items:center; margin-top:10px; color:var(--mute); font-size:13px }
+  .pos input { width:110px; padding:8px 10px; font-size:15px }
   footer { color:var(--mute); font-size:12px; margin-top:26px; line-height:1.5 }
   a { color:#c9b8ff }
 </style>
@@ -73,7 +77,7 @@
   </div>
   <form class="card" id="askf">
     <div style="font-weight:700">Ask the TV, from your phone</div>
-    <p class="sub" style="margin:6px 0 4px">Tap the mic and ask out loud, or type. The TV pauses and answers on screen, using only the subtitles up to now: no spoilers.</p>
+    <p class="sub" style="margin:6px 0 4px">Tap the mic and ask out loud, or type. The TV pauses and answers on screen, using only the subtitles up to now: no spoilers. The same answer also appears here, so you can try it without a Fire TV (no code needed).</p>
     <div class="askrow">
       <input id="ask" maxlength="200" autocomplete="off" placeholder="Why is she looking for a dragon?">
       <button type="button" class="mic" id="mic" title="Ask by voice" aria-label="Ask by voice">🎤</button>
@@ -81,6 +85,8 @@
     <div class="chips" id="sugg"><span class="chip">What did I miss?</span><span class="chip">Who is she talking to?</span><span class="chip">What does that line mean?</span></div>
     <button type="submit">Ask the TV</button>
     <div class="status" id="ast"></div>
+    <div class="pos"><label for="pos" style="margin:0">Film position for the answer on this phone</label><input id="pos" inputmode="numeric" placeholder="1:40"></div>
+    <div class="answer hidden" id="ans" aria-live="polite"></div>
   </form>
   <div class="card" id="outf">
     <div style="font-weight:700">Stepping out?</div>
@@ -90,6 +96,7 @@
       <button type="button" class="back" id="back">👋 I'm back</button>
     </div>
     <div class="status" id="ost"></div>
+    <div class="answer hidden" id="oans" aria-live="polite"></div>
   </div>
   <footer>Companion to <a href="https://casttoyourtv.com/">casttoyourtv.com</a>. Demo film: <i>Sintel</i> © Blender Foundation, <a href="https://durian.blender.org/">durian.blender.org</a>, licensed CC BY 3.0.</footer>
 </main>
@@ -108,12 +115,78 @@
   if (lg && [...$('lang').options].some(o => o.value === lg)) $('lang').value = lg;
   const me = () => ({ name: $('name').value.trim().slice(0, 20), lang: $('lang').value });
   const codeVal = () => $('code').value.trim().toUpperCase();
-  async function post(body) {
-    const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: codeVal(), ...me(), ...body }) });
+  // ---- the answer on this phone too (so it works without a Fire TV). The phone doesn't know the
+  // TV's exact position, so it estimates it from when this page cast (editable). It calls the same
+  // spoiler-safe /api/ask the TV uses, with the same subtitles, cut at that position by the server.
+  const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const parseT = v => { v = String(v || '').trim(); if (!v) return NaN; const p = v.split(':').map(Number); return p.some(x => !Number.isFinite(x)) ? NaN : p.reduce((a, b) => a * 60 + b, 0); };
+  function saveCast(startAt) { try { LS.setItem('cttv.cast', JSON.stringify({ startAt, ts: Date.now() })); } catch (e) { /* private mode */ } }
+  function estPos() {
+    const typed = parseT($('pos').value);
+    if ($('pos').dataset.touched === '1' && Number.isFinite(typed)) return typed;
+    let c = null; try { c = JSON.parse(LS.getItem('cttv.cast') || 'null'); } catch (e) { c = null; }
+    const t = c && Date.now() - c.ts < 3 * 3600e3 ? c.startAt + (Date.now() - c.ts) / 1000 : 140; // nothing cast from this page: preview at 2:20 of the demo, after the first lines
+    return Math.max(0, Math.min(330, Math.round(t)));
+  }
+  $('pos').oninput = () => { $('pos').dataset.touched = '1'; };
+  $('pos').value = fmtT(estPos());
+  setInterval(() => { if ($('pos').dataset.touched !== '1' && document.activeElement !== $('pos')) $('pos').value = fmtT(estPos()); }, 1000);
+  let cuesCache = null;
+  function parseSubs(txt) {
+    const ts = x => { const m = x.trim().replace(',', '.').split(':').map(Number); return m.length === 3 ? m[0] * 3600 + m[1] * 60 + m[2] : m[0] * 60 + m[1]; };
+    return txt.replace(/\r/g, '').split(/\n\n+/).map(b => {
+      const lines = b.split('\n'); const i = lines.findIndex(l => l.includes('-->'));
+      if (i < 0) return null;
+      const [a, z] = lines[i].split('-->');
+      return { s: ts(a), e: ts(z.trim().split(' ')[0]), text: lines.slice(i + 1).join(' ').trim() };
+    }).filter(c => c && c.text && Number.isFinite(c.s));
+  }
+  async function preview(box, extra) {
+    box.classList.remove('hidden'); box.textContent = 'Thinking…';
+    try {
+      if (!cuesCache || cuesCache.url !== $('subs').value) {
+        const r = await fetch($('subs').value);
+        cuesCache = { url: $('subs').value, cues: parseSubs(await r.text()) };
+      }
+      const t = estPos();
+      const body = { mode: extra.mode, t, cues: cuesCache.cues, title: $('title').value, name: me().name, replyLang: me().lang, lang: me().lang, ...extra };
+      const j = await (await fetch('/api/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+      const src = { gemini: 'Gemini', groq: 'Groq', offline: 'offline fallback', rule: 'built-in rule, no AI call', none: 'built-in' }[j.source] || j.source;
+      box.textContent = j.answer || 'No answer.';
+      const s = document.createElement('small');
+      s.textContent = `On this phone, at ${fmtT(t)}${extra.mode === 'missed' ? ` (away since ${fmtT(Math.min(extra.since, t))})` : ''} · knows ${j.cuesUsed || 0} lines so far · ${src}${j.model ? ' ' + j.model : ''} · ${j.ms ?? '?'} ms`;
+      box.appendChild(s);
+    } catch (err) { box.textContent = 'Could not get a preview answer here: ' + err.message + ' (the TV still answers).'; }
+  }
+
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  async function rawPost(payload) {
+    const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
     const j = await r.json(); if (!j.ok) throw new Error(j.error || 'failed'); return j;
   }
+  // Every item carries its own id. Until the TV confirms it took that id, re-send it (the relay
+  // drops duplicates), so a dropped write never silently loses a cast or a question.
+  function confirmDelivery(payload, onDelivered) {
+    const t0 = Date.now(); let last = Date.now();
+    const tick = async () => {
+      if (Date.now() - t0 > 30000) return;
+      try {
+        const s = await (await fetch(`/api/relay?code=${encodeURIComponent(payload.code)}&status=${payload.id}`)).json();
+        if (s.delivered) return onDelivered && onDelivered();
+        if (s.tvOnline && Date.now() - last > 2500) { last = Date.now(); await rawPost(payload); }
+      } catch (e) { /* network blip: try again on the next tick */ }
+      setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1000);
+  }
+  async function post(body, onDelivered) {
+    const payload = { code: codeVal(), ...me(), ...body, id: newId() };
+    const j = await rawPost(payload);
+    confirmDelivery(payload, onDelivered);
+    return j;
+  }
   function saveMe() {
-    try { LS.setItem('cttv.name', me().name); LS.setItem('cttv.lang', me().lang); } catch (e) {}
+    try { LS.setItem('cttv.name', me().name); LS.setItem('cttv.lang', me().lang); } catch (e) { /* private mode */ }
     if (codeVal()) post({ event: 'viewer' }).catch(() => {});
   }
   $('name').onchange = saveMe; $('lang').onchange = saveMe;
@@ -123,10 +196,10 @@
     if (e) e.preventDefault();
     const st = $('st'); st.className = 'status'; st.textContent = 'Sending…';
     try {
-      const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...me(), code: $('code').value.trim().toUpperCase(), videoUrl: $('video').value, subtitleUrl: $('subs').value, title: $('title').value, startAt: Number($('start').value) || 0 }) });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'failed');
+      const startAt = Number($('start').value) || 0;
+      const j = await post({ videoUrl: $('video').value, subtitleUrl: $('subs').value, title: $('title').value, startAt },
+        () => { st.className = 'status ok'; st.textContent = 'Sent! Your TV picked it up ✓'; saveCast(startAt); });
+      saveCast(startAt);
       st.className = 'status ok'; st.textContent = j.tvOnline ? 'Sent! Your TV is starting playback.' : 'Sent. It will start as soon as your TV checks in.';
     } catch (err) { st.className = 'status err'; st.textContent = 'Could not send: ' + err.message; }
   }
@@ -139,9 +212,11 @@
     if (e) e.preventDefault();
     const text = $('ask').value.trim(); const st = $('ast');
     if (!text) { st.className = 'status err'; st.textContent = 'Type or say a question first.'; return; }
+    preview($('ans'), { mode: 'ask', question: text });
+    if (!codeVal()) { st.className = 'status'; st.textContent = 'No TV code: answering here only.'; return; }
     st.className = 'status'; st.textContent = 'Sending…';
     try {
-      const j = await post({ question: text, via });
+      const j = await post({ question: text, via }, () => { st.className = 'status ok'; st.textContent = 'Asked! Your TV got the question ✓'; });
       st.className = 'status ok'; st.textContent = j.tvOnline ? 'Asked! Look at your TV.' : 'Queued. Your TV will answer when it checks in.';
       via = 'text';
     } catch (err) { st.className = 'status err'; st.textContent = 'Could not ask: ' + err.message; }
@@ -166,6 +241,9 @@
     const st = $('ost');
     if (!codeVal()) { st.className = 'status err'; st.textContent = 'Enter the TV code first.'; return; }
     st.className = 'status'; st.textContent = 'Sending…';
+    const posNow = estPos();
+    if (event === 'away') { try { LS.setItem('cttv.awayAt', String(posNow)); } catch (e) { /* private mode */ } }
+    else { let a = null; try { a = LS.getItem('cttv.awayAt'); } catch (e) { a = null; } if (a !== null && Number.isFinite(Number(a))) preview($('oans'), { mode: 'missed', since: Number(a) }); }
     try {
       const j = await post({ event });
       const who = me().name || 'you';
@@ -176,6 +254,7 @@
   }
   $('away').onclick = () => step('away'); $('back').onclick = () => step('back');
   if (q.get('autoevent') === '1' && codeVal() && ['away', 'back'].includes(q.get('event'))) step(q.get('event'));
+
 </script>
 </body>
 </html>

@@ -29,6 +29,7 @@ export function AskPanel({ cues, t, title, phoneQuestion, householdLang }: Props
   const chips = chipsFor(t, transLang);
 
   useEffect(() => {
+    // eslint-disable-next-line @amazon-devices/kepler/animated -- kept on the JS driver as verified in the CI runs on the VVD; switching drivers would change behaviour after submission
     Animated.timing(slide, { toValue: 0, duration: 260, useNativeDriver: false }).start();
   }, [slide]);
 

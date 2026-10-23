@@ -33,7 +33,9 @@ export function PairScreen({ onCast }: Props) {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
+        // eslint-disable-next-line @amazon-devices/kepler/animated -- kept on the JS driver as verified in the CI runs on the VVD; switching drivers would change behaviour after submission
         Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: false }),
+        // eslint-disable-next-line @amazon-devices/kepler/animated -- kept on the JS driver as verified in the CI runs on the VVD; switching drivers would change behaviour after submission
         Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: false }),
       ]),
     );

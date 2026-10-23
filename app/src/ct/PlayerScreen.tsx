@@ -121,6 +121,8 @@ export function PlayerScreen({ cast, onExit }: Props) {
         setState('clock');
       }
     },
+    // Re-create the player only when the cast changes; the other callbacks read refs/state at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [cast.videoUrl, cast.startAt],
   );
 
@@ -174,7 +176,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     pausedRef.current = true;
     try {
       video.current?.pause();
-    } catch (e) {}
+    } catch (e) { /* best effort: ignore */ }
     if (!clockMode.current) setState('paused');
   };
   const resume = () => {
@@ -182,7 +184,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     lastAdvance.current = Date.now();
     try {
       video.current?.play();
-    } catch (e) {}
+    } catch (e) { /* best effort: ignore */ }
     if (!clockMode.current) setState('playing');
   };
 
@@ -218,7 +220,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
     tRef.current = Math.max(0, tRef.current + d);
     try {
       if (video.current && !clockMode.current) video.current.currentTime = tRef.current;
-    } catch (e) {}
+    } catch (e) { /* best effort: ignore */ }
     setHud(true);
     setTimeout(() => setHud(false), 3000);
   };
@@ -257,7 +259,7 @@ export function PlayerScreen({ cast, onExit }: Props) {
         const r = await fetch(`${API_BASE}/api/relay?code=${cast.code}&q=1`);
         const j = await r.json();
         if (alive && j && j.question) onPhoneItem(j.question);
-      } catch (e) {}
+      } catch (e) { /* best effort: ignore */ }
     }, 2000);
     return () => {
       alive = false;

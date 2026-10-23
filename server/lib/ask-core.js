@@ -31,6 +31,7 @@ function clean(text) {
 // Keep only cues that have already started: nothing after `t` reaches the model.
 function spoilerSafe(cues, t) {
   return (Array.isArray(cues) ? cues : [])
+    .filter(c => c && typeof c === 'object')
     .map(c => ({ s: Number(c.s ?? c.start ?? 0), e: Number(c.e ?? c.end ?? 0), text: clean(c.text) }))
     .filter(c => Number.isFinite(c.s) && c.s <= t && c.text)
     .sort((a, b) => a.s - b.s)
@@ -79,10 +80,15 @@ function buildPrompt({ mode, title, t, cues, since, lang, question, name, replyL
     'You are "Ask the TV", a helpful companion on a Fire TV. You answer questions about what the viewer is watching. ' +
     'STRICT RULES: use ONLY the subtitle lines provided (they end at the viewer\'s current position). ' +
     'Never reveal, hint at or guess anything that happens later, even if you recognise the film. ' +
+    'You do not know which film this is: do not use any outside knowledge of any film, book, game or story, ' +
+    'and do not describe images, settings or events that the dialogue does not state. ' +
+    'If the dialogue provided does not answer the question, say so in one sentence and add nothing else. ' +
+    "Don't assume anyone's gender, name or who is speaking unless the dialogue states it. " +
     'Be concise and warm; plain text only, no markdown headings. The answer is read from a sofa, 3 metres away: keep it under 45 words.' +
     (replyLang && replyLang !== 'en' && LANG_NAMES[replyLang] && mode !== 'translate' ? ` Write the whole answer in ${LANG_NAMES[replyLang]}.` : '');
   const user =
-    `Title: ${title || 'Unknown'}\nViewer position: ${fmt(t)}\n\nDialogue so far (subtitles):\n${transcript || '(no dialogue yet)'}\n\nTask: ${tasks[mode] || tasks.miss}`;
+    // The title is deliberately NOT sent: with it, models recap the film from memory (round-2 tester).
+    `Viewer position: ${fmt(t)}\n\nDialogue so far (subtitles):\n${transcript || '(no dialogue yet)'}\n\nTask: ${tasks[mode] || tasks.miss}`;
   return { system, user, used: safe.length, window: win };
 }
 
@@ -140,9 +146,14 @@ async function callGroq(system, user, signal) {
   return { text, model: j.model || 'groq' };
 }
 
-// Tries several Gemini models, each with its own short timeout, and moves on when one is
+const GEMINI_PER_MODEL_MS = Number(process.env.GEMINI_PER_MODEL_MS) || 1400;
+const GROQ_TIMEOUT_MS = Number(process.env.GROQ_TIMEOUT_MS) || 3500;
+const HEDGE_MS = Number(process.env.ASK_HEDGE_MS) || 900; // Groq starts if Gemini hasn't answered by then
+const TOTAL_MS = Number(process.env.ASK_TOTAL_MS) || 4500;
+
+// Tries several Gemini models, each with its own short timeout (GEMINI_PER_MODEL_MS), and moves on when one is
 // missing, rate-limited, overloaded (429/5xx) or slow, so a busy model never stalls the TV.
-async function callGemini(system, user, signal, budgetMs = 9000) {
+async function callGemini(system, user, signal, budgetMs = 9000, perModelMs = GEMINI_PER_MODEL_MS) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('no GEMINI_API_KEY');
   const models = (process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite,gemini-flash-lite-latest,gemini-flash-latest').split(',').map(m => m.trim()).filter(Boolean);
@@ -150,11 +161,11 @@ async function callGemini(system, user, signal, budgetMs = 9000) {
   const errs = [];
   for (const model of models) {
     const left = budgetMs - (Date.now() - t0);
-    if (left < 800 || signal?.aborted) break;
+    if (left < 500 || signal?.aborted) break;
     const ctl = new AbortController();
     const onAbort = () => ctl.abort();
     signal?.addEventListener?.('abort', onAbort);
-    const timer = setTimeout(() => ctl.abort(), Math.min(3500, left));
+    const timer = setTimeout(() => ctl.abort(), Math.min(perModelMs, left));
     try {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: 'POST',
@@ -184,9 +195,64 @@ async function callGemini(system, user, signal, budgetMs = 9000) {
   throw new Error('gemini: ' + (errs.join('; ') || 'no model'));
 }
 
-async function answer(body) {
+// Ask the providers as a hedged race: Gemini starts at once; Groq starts HEDGE_MS later (or as soon
+// as Gemini fails). The first non-empty answer wins and the other request is aborted. `source`,
+// `model` and `providerMs` always describe the provider whose text is returned.
+function raceProviders(system, user, providers) {
+  return new Promise(resolve => {
+    const errors = {};
+    const ctls = [];
+    let pending = providers.length, done = false;
+    const t0 = Date.now();
+    const finish = out => { if (done) return; done = true; ctls.forEach(c => c.abort()); clearTimeout(cap); resolve({ ...out, errors }); };
+    const cap = setTimeout(() => finish({ winner: null }), TOTAL_MS);
+    const starters = providers.map(([name, fn, ms], idx) => {
+      let started = false;
+      const start = () => {
+        if (started || done) return;
+        started = true;
+        const ctl = new AbortController();
+        ctls.push(ctl);
+        const timer = setTimeout(() => ctl.abort(), ms + 200);
+        const s0 = Date.now();
+        fn(system, user, ctl.signal, ms)
+          .then(out => { if (out && out.text) finish({ winner: name, text: out.text, model: out.model, providerMs: Date.now() - s0, totalMs: Date.now() - t0 }); else throw new Error(`${name} empty`); })
+          .catch(e => {
+            if (!done) errors[name] = String((e && e.message) || e);
+            // A failed provider lets the next one start straight away instead of waiting for the hedge.
+            if (starters[idx + 1]) starters[idx + 1]();
+            if (--pending === 0) finish({ winner: null });
+          })
+          .finally(() => clearTimeout(timer));
+      };
+      return start;
+    });
+    starters[0]();
+    providers.forEach((p, idx) => { if (idx > 0) setTimeout(() => starters[idx](), HEDGE_MS * idx); });
+  });
+}
+
+// Inputs that make a model call pointless or unsafe get a deterministic answer (source "rule").
+function ruleAnswer(input, mode, safe, window, rawT, since) {
+  if (rawT !== undefined && rawT !== null && rawT !== '' && !(Number.isFinite(Number(rawT)) && Number(rawT) >= 0)) {
+    return "I couldn't tell where you are in the film, so I won't guess. Press play and ask me again.";
+  }
+  if (mode === 'missed' && Number.isFinite(since) && since > input.t) {
+    const who = cleanName(input.name);
+    return `Welcome back${who ? ', ' + who : ''}! You stepped out after the point the film is at now (${fmt(input.t)}), so you haven't missed anything.`;
+  }
+  if (mode === 'missed' && !window.length) return offlineAnswer(input);
+  // Spoiler guard: no line spoken yet means there is nothing the model may use. Without dialogue a
+  // model fills the gap from what it knows about the film, so it is never called.
+  if (!safe.length) return offlineAnswer(input);
+  if (mode === 'recap' && !window.length) return offlineAnswer(input);
+  return null;
+}
+
+async function answer(body, deps = {}) {
   const mode = MODES[body.mode] ? body.mode : 'miss';
-  const t = Number(body.t) || 0;
+  const rawT = body.t;
+  const t = Number.isFinite(Number(rawT)) && Number(rawT) >= 0 ? Number(rawT) : 0;
   const question = cleanQuestion(body.question);
   if (mode === 'ask' && !question) return { mode, label: MODES.ask, answer: 'Ask me something about what you have watched so far.', source: 'none', cuesUsed: 0 };
   const since = body.since === undefined || body.since === null || body.since === '' ? NaN : Number(body.since);
@@ -194,23 +260,14 @@ async function answer(body) {
   const input = { mode, title: body.title, t, cues: body.cues, since, lang: body.lang, question, name: body.name, replyLang };
   const { system, user, used, window } = buildPrompt(input);
   const base = { mode, label: MODES[mode], question: question || undefined, position: fmt(t), cuesUsed: used, window: window.length };
+  const rule = ruleAnswer(input, mode, spoilerSafe(body.cues, t), window, rawT, since);
+  if (rule) return { ...base, answer: rule, source: 'rule' };
   if (body.offline) return { ...base, answer: offlineAnswer(input), source: 'offline' };
-  // Nothing was said while they were away: answer deterministically, no model call needed.
-  if (mode === 'missed' && !window.length) return { ...base, answer: offlineAnswer(input), source: 'rule' };
-  // Gemini first (best answers when healthy) on a short budget, then Groq, then the offline answer.
-  for (const [name, fn, ms] of [['gemini', callGemini, 3500], ['groq', callGroq, 6000]]) {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), ms + 200);
-    try {
-      const out = await fn(system, user, ctl.signal, ms);
-      return { ...base, answer: out.text, source: name, model: out.model };
-    } catch (e) {
-      base[`${name}Error`] = String(e.message || e);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+  const providers = [['gemini', callGemini, 2 * GEMINI_PER_MODEL_MS], ['groq', callGroq, GROQ_TIMEOUT_MS]];
+  const r = await (deps.race || raceProviders)(system, user, providers);
+  for (const [k, v] of Object.entries(r.errors || {})) base[`${k}Error`] = v;
+  if (r.winner) return { ...base, answer: r.text, source: r.winner, model: r.model, providerMs: r.providerMs };
   return { ...base, answer: offlineAnswer(input), source: 'offline' };
 }
 
-module.exports = { answer, buildPrompt, offlineAnswer, spoilerSafe, windowFor, cleanName, MODES, LANG_NAMES, fmt };
+module.exports = { answer, raceProviders, ruleAnswer, buildPrompt, offlineAnswer, spoilerSafe, windowFor, cleanName, MODES, LANG_NAMES, fmt };
