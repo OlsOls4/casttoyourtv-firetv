@@ -18,12 +18,14 @@ type FocusableProps = {
   variant?: 'primary' | 'ghost' | 'chip';
   testID?: string;
   onFocused?: () => void;
+  quiet?: boolean; // keep the focus but don't draw it (e.g. while a phone answer is on screen)
 };
 
 // D-pad focusable button with an obvious focus state (scale + glow + colour change).
-export function Focusable({ label, icon, onPress, preferred, style, variant = 'ghost', testID, onFocused }: FocusableProps) {
+export function Focusable({ label, icon, onPress, preferred, style, variant = 'ghost', testID, onFocused, quiet }: FocusableProps) {
   const S = useS();
-  const [focused, setFocused] = useState(false);
+  const [hasFocus, setFocused] = useState(false);
+  const focused = hasFocus && !quiet;
   const primary = variant === 'primary';
   const chip = variant === 'chip';
   const bg = focused ? (primary ? COLORS.accent : '#F4F1EA') : primary ? 'rgba(255,181,71,0.16)' : 'rgba(255,255,255,0.06)';

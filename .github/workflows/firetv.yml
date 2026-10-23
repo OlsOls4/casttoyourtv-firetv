@@ -6,7 +6,7 @@ name: Fire TV (Vega VVD) build + demo
 
 on:
   push:
-    branches: [main]
+    branches: [main, polish]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
     inputs:
@@ -39,8 +39,14 @@ jobs:
         with:
           node-version: "22"
 
+      # The spoiler boundary: no cue after the pause point may reach the prompt, in any mode.
+      - name: Server tests (spoiler boundary, node --test)
+        run: |
+          mkdir -p artifacts/logs
+          node --test server/test/*.test.js 2>&1 | tee artifacts/logs/server-tests.log
+
       # Installs the Vega SDK, enables KVM and boots the VVD in the background.
-      - uses: OlsOls4/vega-vvd-ci@main
+      - uses: OlsOls4/vega-vvd-ci@v1
         with:
           boot: background
 

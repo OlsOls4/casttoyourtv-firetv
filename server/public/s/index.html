@@ -28,6 +28,13 @@
   button.mic { width:56px; margin:0; padding:0; font-size:24px; background:#1d2540; border:1px solid #2c3554 }
   button.mic.on { background:#ff5a5a; box-shadow:0 0 0 6px rgba(255,90,90,.25) }
   .chip { cursor:pointer }
+  select { width:100%; padding:13px 14px; border-radius:12px; border:1px solid #2c3554; background:#0e1322; color:var(--ink); font-size:16px }
+  .row2 { display:flex; gap:10px } .row2 > * { flex:1 }
+  .row2 button { margin-top:12px }
+  button.away { background:#1d2540; color:var(--ink); border:1px solid #2c3554 }
+  button.back { background:linear-gradient(90deg,#6ee7a8,#3cc8c8); color:#06231a }
+  .who { display:flex; gap:10px } .who > div:first-child { flex:1.3 } .who > div:last-child { flex:1 }
+  .hidden { display:none }
   footer { color:var(--mute); font-size:12px; margin-top:26px; line-height:1.5 }
   a { color:#c9b8ff }
 </style>
@@ -52,6 +59,18 @@
     <button type="button" class="ghost" id="demo">Use the Sintel demo</button>
     <div class="status" id="st"></div>
   </form>
+  <div class="card" id="you">
+    <div style="font-weight:700">Who's watching?</div>
+    <p class="sub" style="margin:6px 0 0">The TV answers you by name, in your language.</p>
+    <div class="who">
+      <div><label for="name">Your name</label><input id="name" maxlength="20" autocomplete="off" placeholder="Mia"></div>
+      <div><label for="lang">Language</label>
+        <select id="lang">
+          <option value="en">English</option><option value="es">Español</option><option value="fr">Français</option>
+          <option value="de">Deutsch</option><option value="pl">Polski</option><option value="hi">हिन्दी</option><option value="ja">日本語</option>
+        </select></div>
+    </div>
+  </div>
   <form class="card" id="askf">
     <div style="font-weight:700">Ask the TV, from your phone</div>
     <p class="sub" style="margin:6px 0 4px">Tap the mic and ask out loud, or type. The TV pauses and answers on screen, using only the subtitles up to now: no spoilers.</p>
@@ -63,6 +82,15 @@
     <button type="submit">Ask the TV</button>
     <div class="status" id="ast"></div>
   </form>
+  <div class="card" id="outf">
+    <div style="font-weight:700">Stepping out?</div>
+    <p class="sub" style="margin:6px 0 0">Tap before you leave. When you're back, the TV pauses and catches you up on exactly what you missed: nothing after.</p>
+    <div class="row2">
+      <button type="button" class="away" id="away">🚶 Stepping out</button>
+      <button type="button" class="back" id="back">👋 I'm back</button>
+    </div>
+    <div class="status" id="ost"></div>
+  </div>
   <footer>Companion to <a href="https://casttoyourtv.com/">casttoyourtv.com</a>. Demo film: <i>Sintel</i> © Blender Foundation, <a href="https://durian.blender.org/">durian.blender.org</a>, licensed CC BY 3.0.</footer>
 </main>
 <script>
@@ -73,13 +101,30 @@
   $('video').value = q.get('video') || DEMO.video;
   $('subs').value = q.get('subs') || DEMO.subs;
   $('title').value = q.get('title') || DEMO.title;
+  // ---- who's watching: name + language, remembered on this phone
+  const LS = window.localStorage;
+  $('name').value = q.get('name') || (LS && LS.getItem('cttv.name')) || '';
+  const lg = q.get('lang') || (LS && LS.getItem('cttv.lang')) || '';
+  if (lg && [...$('lang').options].some(o => o.value === lg)) $('lang').value = lg;
+  const me = () => ({ name: $('name').value.trim().slice(0, 20), lang: $('lang').value });
+  const codeVal = () => $('code').value.trim().toUpperCase();
+  async function post(body) {
+    const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: codeVal(), ...me(), ...body }) });
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || 'failed'); return j;
+  }
+  function saveMe() {
+    try { LS.setItem('cttv.name', me().name); LS.setItem('cttv.lang', me().lang); } catch (e) {}
+    if (codeVal()) post({ event: 'viewer' }).catch(() => {});
+  }
+  $('name').onchange = saveMe; $('lang').onchange = saveMe;
+  if (q.get('view') === 'remote') $('f').classList.add('hidden');
   $('demo').onclick = () => { $('video').value = DEMO.video; $('subs').value = DEMO.subs; $('title').value = DEMO.title; $('start').value = DEMO.start; };
   async function send(e) {
     if (e) e.preventDefault();
     const st = $('st'); st.className = 'status'; st.textContent = 'Sending…';
     try {
       const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: $('code').value.trim().toUpperCase(), videoUrl: $('video').value, subtitleUrl: $('subs').value, title: $('title').value, startAt: Number($('start').value) || 0 }) });
+        body: JSON.stringify({ ...me(), code: $('code').value.trim().toUpperCase(), videoUrl: $('video').value, subtitleUrl: $('subs').value, title: $('title').value, startAt: Number($('start').value) || 0 }) });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || 'failed');
       st.className = 'status ok'; st.textContent = j.tvOnline ? 'Sent! Your TV is starting playback.' : 'Sent. It will start as soon as your TV checks in.';
@@ -96,10 +141,7 @@
     if (!text) { st.className = 'status err'; st.textContent = 'Type or say a question first.'; return; }
     st.className = 'status'; st.textContent = 'Sending…';
     try {
-      const r = await fetch('/api/relay', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: $('code').value.trim().toUpperCase(), question: text, via }) });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'failed');
+      const j = await post({ question: text, via });
       st.className = 'status ok'; st.textContent = j.tvOnline ? 'Asked! Look at your TV.' : 'Queued. Your TV will answer when it checks in.';
       via = 'text';
     } catch (err) { st.className = 'status err'; st.textContent = 'Could not ask: ' + err.message; }
@@ -110,7 +152,7 @@
   if (!SR) { $('mic').title = 'Voice input is not supported in this browser: type instead'; $('mic').style.opacity = .45; }
   $('mic').onclick = () => {
     if (!SR) { $('ast').className = 'status'; $('ast').textContent = 'Voice input needs Chrome or Safari: type your question instead.'; return; }
-    const rec = new SR(); rec.lang = navigator.language || 'en-GB'; rec.interimResults = true; rec.maxAlternatives = 1;
+    const rec = new SR(); const L = me().lang; rec.lang = (navigator.language || '').startsWith(L) ? navigator.language : ({ en: 'en-GB', es: 'es-ES', fr: 'fr-FR', de: 'de-DE', pl: 'pl-PL', hi: 'hi-IN', ja: 'ja-JP' }[L] || 'en-GB'); rec.interimResults = true; rec.maxAlternatives = 1;
     $('mic').classList.add('on'); $('ast').className = 'status'; $('ast').textContent = 'Listening…';
     rec.onresult = ev => { const r = ev.results[ev.results.length - 1]; $('ask').value = r[0].transcript; if (r.isFinal) { via = 'voice'; ask(); } };
     rec.onerror = ev => { $('ast').className = 'status err'; $('ast').textContent = 'Mic error: ' + ev.error; };
@@ -119,6 +161,21 @@
   };
   if (q.get('ask')) { $('ask').value = q.get('ask'); if (q.get('via') === 'voice') via = 'voice'; }
   if (q.get('autoask') === '1' && $('code').value && q.get('ask')) ask();
+  // ---- stepping out / I'm back
+  async function step(event) {
+    const st = $('ost');
+    if (!codeVal()) { st.className = 'status err'; st.textContent = 'Enter the TV code first.'; return; }
+    st.className = 'status'; st.textContent = 'Sending…';
+    try {
+      const j = await post({ event });
+      const who = me().name || 'you';
+      st.className = 'status ok';
+      st.textContent = event === 'away' ? `Got it. The TV noted when ${who} left. Tap “I'm back” when you return.` : (j.tvOnline ? 'Welcome back! Look at the TV for your catch-up.' : 'Queued. Your TV will catch you up when it checks in.');
+      $('away').classList.toggle('hidden', event === 'away'); $('back').classList.toggle('hidden', false);
+    } catch (err) { st.className = 'status err'; st.textContent = 'Could not send: ' + err.message; }
+  }
+  $('away').onclick = () => step('away'); $('back').onclick = () => step('back');
+  if (q.get('autoevent') === '1' && codeVal() && ['away', 'back'].includes(q.get('event'))) step(q.get('event'));
 </script>
 </body>
 </html>
